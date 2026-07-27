@@ -2,7 +2,10 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # Semver tags only (e.g. v0.2.1) — publishing a version. The floating major
+    # tag `v1` (moved to point the Action at a release) must NOT re-trigger a
+    # publish, so it is intentionally excluded by this pattern.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 permissions:
   contents: read

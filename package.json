@@ -1,6 +1,6 @@
 {
   "name": "@hubble-ventures/env-source",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Populate .env files from orchestrated secret providers, driven by decorated .env.source manifests — one format for local dev and CI.",
   "keywords": [
     "env",
@@ -27,7 +27,7 @@
     "access": "public"
   },
   "bin": {
-    "env-source": "./dist/cli.js"
+    "env-source": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

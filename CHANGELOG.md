@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- First release published via npm OIDC trusted publishing (provenance-attested).
+- Normalize the `bin` path to `dist/cli.js` (silences an npm 11 auto-correct warning).
+- Release workflow triggers on semver tags only, so moving the `v1` Action tag
+  never re-triggers a publish.
+
 ## 0.2.0
 
 - **Provider fallback chains**: a variable can list several provider sources,
