@@ -73,5 +73,5 @@ outputs:
     description: 'diff: total variables whose source changed'
 
 runs:
-  using: node20
+  using: node24
   main: index.cjs
