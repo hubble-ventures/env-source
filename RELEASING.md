@@ -9,29 +9,24 @@
 ## Publishing auth: npm Trusted Publishing (OIDC) — no stored token
 
 The release workflow publishes to npm using the workflow's **OIDC identity**, not
-a stored `NPM_TOKEN` (`permissions: id-token: write` in `release.yml`). Ongoing
-releases need no secret.
+a stored `NPM_TOKEN` (`permissions: id-token: write` in `release.yml`). No secret
+is ever needed — including for the first publish.
 
-**Bootstrap caveat:** OIDC cannot perform a package's *first* publish — npm
-requires the package to exist before you can attach a trusted publisher. So do
-this once:
+One-time setup (already done for this package):
 
-1. **First publish (bootstrap), from your machine while logged in to npm:**
-   ```bash
-   npm login                    # if not already
-   npm run build
-   npm publish --access public  # creates @hubble-ventures/env-source on npm
-   ```
-2. **Configure the trusted publisher** on npmjs.com → the package → Settings →
+1. **Configure the trusted publisher** on npmjs.com → the package → Settings →
    *Trusted Publisher* → GitHub Actions:
    - Organization/user: `hubble-ventures`
    - Repository: `env-source`
    - Workflow filename: `release.yml`
-   - Environment: *(leave blank, or add one and gate the job on it)*
-3. From then on, every tagged release publishes via OIDC — **no token, ever.**
+   - Environment: *(blank, or add one and gate the job on it)*
 
-(The GitHub repo already exists at `github.com/hubble-ventures/env-source` with
-`origin` set.)
+   npm lets you configure this *before* the package's first publish, so the very
+   first release is published over OIDC too — no bootstrap token required.
+
+Every release (including the first) then publishes via OIDC on a tag push. The
+GitHub repo already exists at `github.com/hubble-ventures/env-source` with
+`origin` set.
 
 ## Cutting a version
 
