@@ -89,45 +89,72 @@ describe("parseEnvSource", () => {
     });
   });
 
-  it("does not attach a comment separated from the assignment by a blank line", () => {
+  it("carries a decorator across a blank line (blanks are cosmetic)", () => {
     const { declarations } = parseEnvSource(
       ["# infisical", "#     /shared", "", "A=1"].join("\n")
     );
-    expect(declarations[0]?.sources).toEqual([]);
+    expect(declarations[0]?.sources).toEqual([
+      { provider: "infisical", path: "/shared" },
+    ]);
   });
 
-  it("applies a sticky group to every key below it until a blank line", () => {
+  it("never attaches a prose comment, blank line or not", () => {
+    const { declarations } = parseEnvSource(
+      ["# stripe keys go here", "", "STRIPE_KEY=abc"].join("\n")
+    );
+    expect(declarations[0]).toMatchObject({
+      targetVar: "STRIPE_KEY",
+      sources: [],
+      default: "abc",
+    });
+  });
+
+  it("applies a sticky group across blank lines until a new decorator", () => {
     const { declarations } = parseEnvSource(
       [
         "# infisical",
         "# (development,production)",
         "#     /clerk",
         "CLERK_SECRET_KEY=",
+        "", // cosmetic — must NOT end the group
         "GOOGLE_IOS_CLIENT_ID=",
-        "",
-        "NODE_ENV=production",
       ].join("\n")
     );
-    // Both keys inherit the group's provider/path/env without repeating it.
-    expect(declarations[0]?.sources).toEqual([
+    const expected = [
       {
         provider: "infisical",
         path: "/clerk",
         environments: ["development", "production"],
       },
-    ]);
-    expect(declarations[1]?.sources).toEqual([
-      {
-        provider: "infisical",
-        path: "/clerk",
-        environments: ["development", "production"],
-      },
-    ]);
-    // The blank line ended the group, so NODE_ENV is a literal.
-    expect(declarations[2]).toMatchObject({
+    ];
+    expect(declarations[0]?.sources).toEqual(expected);
+    // The blank line did not reset the group — the second key still inherits it.
+    expect(declarations[1]?.sources).toEqual(expected);
+  });
+
+  it("resets to literals with a `# literal` line", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "#     /clerk",
+        "CLERK_SECRET_KEY=",
+        "",
+        "# literal",
+        "NODE_ENV=production",
+        "PORT=8080",
+      ].join("\n")
+    );
+    expect(declarations[0]?.sources[0]).toMatchObject({ path: "/clerk" });
+    // After `# literal`, both keys are provider-less literals.
+    expect(declarations[1]).toMatchObject({
       targetVar: "NODE_ENV",
       sources: [],
       default: "production",
+    });
+    expect(declarations[2]).toMatchObject({
+      targetVar: "PORT",
+      sources: [],
+      default: "8080",
     });
   });
 

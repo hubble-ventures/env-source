@@ -10,9 +10,10 @@ const ENV_LIST = /^\(([^)]*)\)$/;
 /**
  * Parse `.env.source` text into declarations.
  *
- * The grammar is dotenv with *sticky decorators*: comment lines describe where
- * the variables below them are sourced from, and that context **persists for
- * every following assignment until a blank line or a new decorator changes it**.
+ * The grammar is dotenv with *sticky decorators* (frontmatter): comment lines
+ * describe where the variables below them are sourced from, and that context
+ * **persists for every following assignment until the next decorator replaces
+ * it**. Blank lines are cosmetic — they never change meaning.
  *
  * ```
  * # infisical                         ← provider id (opens a group)
@@ -22,17 +23,21 @@ const ENV_LIST = /^\(([^)]*)\)$/;
  * STRIPE_WEBHOOK_SECRET=              ← same group — no need to repeat the decorator
  * #     ORIGINAL_NAME                 ← one-shot source-key alias for the NEXT key only
  * WEBHOOK_SECRET=<optional default>   ← emitted var + optional fallback default
+ *
+ * # literal                           ← reset: keys below have no provider
+ * NODE_ENV=production                 ← a literal (value is the RHS)
  * ```
  *
  * What is sticky vs. one-shot:
  *  - **Provider, container path, and environment scope are sticky** — they apply
- *    to every assignment below until redefined or a blank line clears the group.
+ *    to every assignment below until a new decorator changes them.
  *  - **A bare source-key line is one-shot** — it aliases only the immediately
  *    following assignment (source keys are inherently per-variable).
  *
- * Multiple provider lines before one assignment build a fallback *chain*. A block
- * whose lines are not decorator-shaped is a plain comment and is ignored. A
- * declaration with no active provider group is a *literal*: its value is the RHS.
+ * Multiple provider lines with no assignment between them build a fallback
+ * *chain*. `# literal` clears the provider context so the keys below are literals
+ * (also the state at the top of a file, before any decorator). A comment whose
+ * lines are not decorator-shaped is a plain comment and is ignored.
  */
 export function parseEnvSource(text: string): ParsedManifest {
   const declarations: Declaration[] = [];
@@ -55,15 +60,8 @@ export function parseEnvSource(text: string): ParsedManifest {
     const line = (lines[i] ?? "").trim();
     const lineNo = i + 1;
 
-    if (line === "") {
-      // Blank line ends the group entirely — the next assignment starts clean
-      // (this is how a literal sits below a decorated group).
-      group = [];
-      current = undefined;
-      blockHasProvider = false;
-      pendingSourceKey = undefined;
-      continue;
-    }
+    // Blank lines are cosmetic — the sticky context carries across them.
+    if (line === "") continue;
 
     if (line.startsWith("#")) {
       const body = line.replace(/^#+/, "").trim();
@@ -106,6 +104,16 @@ export function parseEnvSource(text: string): ParsedManifest {
 
   /** Fold one decorator comment body into the running group context. */
   function applyDecorator(body: string): void {
+    if (body === "literal") {
+      // Explicit reset: keys below have no provider (they are literals) until the
+      // next decorator opens a group.
+      group = [];
+      current = undefined;
+      blockHasProvider = false;
+      pendingSourceKey = undefined;
+      return;
+    }
+
     if (PROVIDER_TOKEN.test(body)) {
       // First provider since the last assignment/blank opens a fresh group;
       // a subsequent one extends the fallback chain.

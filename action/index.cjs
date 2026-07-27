@@ -4868,13 +4868,7 @@ function parseEnvSource(text) {
   for (let i = 0; i < lines.length; i++) {
     const line = (lines[i] ?? "").trim();
     const lineNo = i + 1;
-    if (line === "") {
-      group = [];
-      current = void 0;
-      blockHasProvider = false;
-      pendingSourceKey = void 0;
-      continue;
-    }
+    if (line === "") continue;
     if (line.startsWith("#")) {
       const body = line.replace(/^#+/, "").trim();
       if (body === "") continue;
@@ -4910,6 +4904,13 @@ function parseEnvSource(text) {
   }
   return { declarations, issues };
   function applyDecorator(body) {
+    if (body === "literal") {
+      group = [];
+      current = void 0;
+      blockHasProvider = false;
+      pendingSourceKey = void 0;
+      return;
+    }
     if (PROVIDER_TOKEN.test(body)) {
       if (!blockHasProvider) group = [];
       current = { provider: body };
