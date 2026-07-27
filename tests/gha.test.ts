@@ -105,6 +105,10 @@ describe("upsertPrComment", () => {
   });
 
   it("no-ops outside a pull_request event", async () => {
+    // Clear the ambient GitHub env explicitly — on a pull_request CI run these
+    // are set to a real event, which would otherwise make this look like a PR.
+    vi.stubEnv("GITHUB_EVENT_PATH", "");
+    vi.stubEnv("GITHUB_REPOSITORY", "");
     const spy = vi.fn();
     vi.stubGlobal("fetch", spy);
     await upsertPrComment("token", "## diff");
