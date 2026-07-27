@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2
+
+- Fix `migrate`: nested folder blocks in a legacy `secrets.json` (e.g.
+  `apple → paddlesup → [KEYS]`) now flatten into a joined container path
+  (`/apple/paddlesup`) with one valid assignment per key. Previously the nested
+  object was mistaken for an alias and the key list was emitted as a single
+  comma-mashed (invalid) variable name.
+
 ## 0.2.1
 
 - First release published via npm OIDC trusted publishing (provenance-attested).
