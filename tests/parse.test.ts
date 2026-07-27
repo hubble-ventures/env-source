@@ -96,6 +96,88 @@ describe("parseEnvSource", () => {
     expect(declarations[0]?.sources).toEqual([]);
   });
 
+  it("applies a sticky group to every key below it until a blank line", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "# (development,production)",
+        "#     /clerk",
+        "CLERK_SECRET_KEY=",
+        "GOOGLE_IOS_CLIENT_ID=",
+        "",
+        "NODE_ENV=production",
+      ].join("\n")
+    );
+    // Both keys inherit the group's provider/path/env without repeating it.
+    expect(declarations[0]?.sources).toEqual([
+      {
+        provider: "infisical",
+        path: "/clerk",
+        environments: ["development", "production"],
+      },
+    ]);
+    expect(declarations[1]?.sources).toEqual([
+      {
+        provider: "infisical",
+        path: "/clerk",
+        environments: ["development", "production"],
+      },
+    ]);
+    // The blank line ended the group, so NODE_ENV is a literal.
+    expect(declarations[2]).toMatchObject({
+      targetVar: "NODE_ENV",
+      sources: [],
+      default: "production",
+    });
+  });
+
+  it("treats a source-key line as one-shot (aliases only the next key)", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "#     /clerk",
+        "CLERK_SECRET_KEY=",
+        "#     CLERK_PUBLISHABLE_KEY",
+        "VITE_CLERK_PUBLISHABLE_KEY=",
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=",
+      ].join("\n")
+    );
+    // First key: plain, no alias.
+    expect(declarations[0]?.sources[0]).toEqual({ provider: "infisical", path: "/clerk" });
+    // Aliased key: source key overridden for this one only.
+    expect(declarations[1]?.sources[0]).toEqual({
+      provider: "infisical",
+      path: "/clerk",
+      sourceKey: "CLERK_PUBLISHABLE_KEY",
+    });
+    // The alias did NOT leak — the third key reverts to its own name.
+    expect(declarations[2]?.sources[0]).toEqual({ provider: "infisical", path: "/clerk" });
+  });
+
+  it("keeps per-source aliases in a chain without leaking to later keys", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "#     /shared",
+        "#     PRIMARY",
+        "# vault",
+        "#     /team/item",
+        "#     FIELD",
+        "TOKEN=",
+        "PLAIN=",
+      ].join("\n")
+    );
+    expect(declarations[0]?.sources).toEqual([
+      { provider: "infisical", path: "/shared", sourceKey: "PRIMARY" },
+      { provider: "vault", path: "/team/item", sourceKey: "FIELD" },
+    ]);
+    // Next sticky key reuses the chain's providers/paths but its own key names.
+    expect(declarations[1]?.sources).toEqual([
+      { provider: "infisical", path: "/shared" },
+      { provider: "vault", path: "/team/item" },
+    ]);
+  });
+
   it("flags an invalid variable name", () => {
     const { issues } = parseEnvSource("1BAD=x");
     expect(issues[0]?.code).toBe("invalid_var_name");

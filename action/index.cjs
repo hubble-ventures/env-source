@@ -4860,18 +4860,25 @@ var ENV_LIST = /^\(([^)]*)\)$/;
 function parseEnvSource(text) {
   const declarations = [];
   const issues = [];
-  let pending = null;
+  let group = [];
+  let current;
+  let blockHasProvider = false;
+  let pendingSourceKey;
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i] ?? "";
-    const line = rawLine.trim();
+    const line = (lines[i] ?? "").trim();
     const lineNo = i + 1;
     if (line === "") {
-      pending = null;
+      group = [];
+      current = void 0;
+      blockHasProvider = false;
+      pendingSourceKey = void 0;
       continue;
     }
     if (line.startsWith("#")) {
-      (pending ??= []).push(line.replace(/^#\s?/, ""));
+      const body = line.replace(/^#+/, "").trim();
+      if (body === "") continue;
+      applyDecorator(body);
       continue;
     }
     const eq = line.indexOf("=");
@@ -4882,7 +4889,8 @@ function parseEnvSource(text) {
         line: lineNo,
         message: `Expected 'KEY=value' or a comment, got: ${line}`
       });
-      pending = null;
+      blockHasProvider = false;
+      pendingSourceKey = void 0;
       continue;
     }
     const targetVar = line.slice(0, eq).trim();
@@ -4894,30 +4902,59 @@ function parseEnvSource(text) {
         key: targetVar,
         message: `Invalid variable name '${targetVar}'`
       });
-      pending = null;
+      blockHasProvider = false;
+      pendingSourceKey = void 0;
       continue;
     }
-    const declaration = buildDeclaration(
-      targetVar,
-      line.slice(eq + 1),
-      pending ?? [],
-      lineNo,
-      issues
-    );
-    declarations.push(declaration);
-    pending = null;
+    emit(targetVar, line.slice(eq + 1), lineNo);
   }
   return { declarations, issues };
-}
-function buildDeclaration(targetVar, rawValue, decorator, line, issues) {
-  const declaration = {
-    targetVar,
-    sources: parseDecorator(decorator, targetVar, line, issues),
-    line
-  };
-  const def = parseDefault(rawValue);
-  if (def !== void 0) declaration.default = def;
-  return declaration;
+  function applyDecorator(body) {
+    if (PROVIDER_TOKEN.test(body)) {
+      if (!blockHasProvider) group = [];
+      current = { provider: body };
+      group.push(current);
+      blockHasProvider = true;
+      return;
+    }
+    const env = ENV_LIST.exec(body);
+    if (env) {
+      if (current) {
+        current.environments = env[1].split(",").map((s) => s.trim()).filter((s) => s !== "");
+      }
+      return;
+    }
+    if (body.includes("/")) {
+      if (current) current.path = body;
+      return;
+    }
+    if (IDENT.test(body)) {
+      if (blockHasProvider && current) current.sourceKey = body;
+      else if (group.length > 0) pendingSourceKey = body;
+      return;
+    }
+  }
+  function emit(targetVar, rawValue, lineNo) {
+    const sources = group.map((s) => {
+      const copy = { provider: s.provider };
+      if (s.path !== void 0) copy.path = s.path;
+      if (s.sourceKey !== void 0) copy.sourceKey = s.sourceKey;
+      if (s.environments !== void 0) copy.environments = [...s.environments];
+      return copy;
+    });
+    if (pendingSourceKey !== void 0 && sources.length > 0) {
+      sources[sources.length - 1].sourceKey = pendingSourceKey;
+    }
+    const declaration = { targetVar, sources, line: lineNo };
+    const def = parseDefault(rawValue);
+    if (def !== void 0) declaration.default = def;
+    declarations.push(declaration);
+    for (const s of group) {
+      delete s.sourceKey;
+    }
+    pendingSourceKey = void 0;
+    blockHasProvider = false;
+  }
 }
 function parseDefault(rawValue) {
   const trimmed = rawValue.trim();
@@ -4927,43 +4964,6 @@ function parseDefault(rawValue) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
-}
-function parseDecorator(decorator, targetVar, line, issues) {
-  const content = decorator.map((l) => l.trim()).filter((l) => l !== "");
-  if (content.length === 0) return [];
-  const sources = [];
-  let current;
-  for (const raw of content) {
-    if (PROVIDER_TOKEN.test(raw)) {
-      current = { provider: raw };
-      sources.push(current);
-      continue;
-    }
-    if (!current) {
-      return [];
-    }
-    const envMatch = ENV_LIST.exec(raw);
-    if (envMatch) {
-      current.environments = (envMatch[1] ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
-      continue;
-    }
-    if (raw.includes("/")) {
-      current.path = raw;
-      continue;
-    }
-    if (IDENT.test(raw)) {
-      current.sourceKey = raw;
-      continue;
-    }
-    issues.push({
-      level: "warning",
-      code: "unrecognized_decorator",
-      line,
-      key: targetVar,
-      message: `Ignored unrecognized decorator line for '${targetVar}': ${raw}`
-    });
-  }
-  return sources;
 }
 
 // src/adapters/workspace.ts
