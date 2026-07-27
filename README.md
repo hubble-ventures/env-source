@@ -19,42 +19,72 @@ env-source.toml        ← root, non-secret provider context (committed)
 
 ## The `.env.source` format
 
-It's `dotenv` with **decorators**. The comment block directly above an assignment
-says which provider sources that variable, from which container, in which
-environments:
+It's `dotenv` with **sticky decorators** (think frontmatter). A comment block says
+which provider sources the variables *below* it, from which container, in which
+environments — and that context **applies to every assignment until the next
+decorator changes it**. You write the provider and path once, not per key:
 
 ```dotenv
-# infisical                          ← provider id
+# infisical                          ← provider id (opens a group)
 # (development,preview,production)    ← environments the provider is consulted in
-#     /payments/stripe               ← provider container path
-#     STRIPE_WEBHOOK_SECRET          ← optional: source key when it differs from the var
-WEBHOOK_SECRET=<optional default>    ← emitted variable + optional fallback default
+#     /clerk                         ← provider container path
+CLERK_SECRET_KEY=                    ← sourced from /clerk
+GOOGLE_IOS_CLIENT_ID=                ← same group — no need to repeat the decorator
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 ```
 
-- **No source-key line** → the source key equals the variable name.
+**What is sticky vs. one-shot**
+
+- **Provider, container path, and environments are sticky** — they carry down to
+  every assignment until a new decorator replaces them.
+- **A source-key alias is one-shot** — a bare `#  SOURCE_KEY` line aliases only
+  the *immediately following* key (source keys are inherently per-variable):
+  ```dotenv
+  # infisical
+  #     /clerk
+  #     CLERK_PUBLISHABLE_KEY        ← one-shot: applies to the next key only
+  VITE_CLERK_PUBLISHABLE_KEY=
+  CLERK_SECRET_KEY=                  ← reverts to its own name
+  ```
+- **Blank lines are cosmetic** — they never end a group. Format for readability
+  freely.
+- **`# literal`** clears the provider context, so the keys below are literals
+  (their value is the right-hand side). Literals also work at the top of a file,
+  before any decorator:
+  ```dotenv
+  # literal
+  NODE_ENV=production
+  PORT=8080
+  ```
+
+**Other rules**
+
 - **No environments line** → the provider is consulted in *all* environments.
-- **No provider decorator** → the assignment is a **literal**; its value is written
-  verbatim (e.g. `NODE_ENV=production`).
-- **Several provider blocks** stack into a **fallback chain** — each is tried in
-  order until one has the key, then the default:
+- **The right of `=`** is an optional fallback default. An empty RHS or a
+  `<placeholder>` means "no concrete default". When no source yields a value, the
+  variable falls back to this default (and is dropped if there is none).
+- **Several provider blocks with no key between them** stack into a **fallback
+  chain** — each is tried in order until one has the key, then the default:
   ```dotenv
   # infisical
   #     /shared
   # onepassword
   #     /vault/item
-  #     API_TOKEN
   API_TOKEN=<optional default>
   ```
-- **The right of `=`** is an optional fallback default. An empty RHS or a
-  `<placeholder>` means "no concrete default". When no source in the chain yields
-  a value, the variable falls back to this default (and is dropped if there is
-  none).
+- Provider ids come from `env-source.toml`, so a container key that happens to be
+  a lowercase word (`token`, `secret`) is never mistaken for a provider.
+
+Putting it together:
 
 ```dotenv
 # infisical
 # (development,preview,production)
 #     /payments/stripe
-STRIPE_SECRET_KEY=<optional default>
+STRIPE_SECRET_KEY=
+STRIPE_PUBLISHABLE_KEY=
+#     STRIPE_WEBHOOK_SIGNING_SECRET   ← one-shot alias for the next key
+WEBHOOK_SECRET=
 
 # Sourced only in dev; every other environment falls back to the default.
 # infisical
@@ -62,6 +92,7 @@ STRIPE_SECRET_KEY=<optional default>
 #     /shared
 DEBUG_TOKEN=off
 
+# literal
 NODE_ENV=production
 ```
 
