@@ -20,8 +20,10 @@ export type MigrationResult = {
   warnings: string[];
 };
 
-type AliasEntry = Record<string, string>;
-type KeyEntry = string | AliasEntry;
+// A key entry is a bare key, a `{ SOURCE: TARGET }` alias (string value), or a
+// nested sub-folder `{ subfolder: [ ...entries ] }` (array value). The legacy
+// format nests folders arbitrarily deep (e.g. apple → paddlesup → keys).
+type KeyEntry = string | { [k: string]: string | KeyEntry[] };
 type SecretsBlock = Record<string, KeyEntry[]>;
 type LegacyManifest = {
   secrets?: SecretsBlock[];
@@ -80,23 +82,42 @@ function renderBlocks(blocks: SecretsBlock[]): string {
   ];
   for (const block of blocks) {
     for (const [folder, entries] of Object.entries(block)) {
-      const path = `/${folder.replace(/^\/+/, "")}`;
-      for (const entry of entries) {
-        const { sourceKey, targetVar } = readEntry(entry);
-        lines.push("# infisical", `#     ${path}`);
-        if (sourceKey !== targetVar) lines.push(`#     ${sourceKey}`);
-        lines.push(`${targetVar}=`, "");
-      }
+      emitFolder(`/${folder.replace(/^\/+/, "")}`, entries, lines);
     }
   }
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-/** A key entry is a bare source key or a single-pair `{ SOURCE: TARGET }` alias. */
-function readEntry(entry: KeyEntry): { sourceKey: string; targetVar: string } {
-  if (typeof entry === "string") return { sourceKey: entry, targetVar: entry };
-  const [pair] = Object.entries(entry);
-  if (!pair) throw new Error("empty alias entry in secrets.json");
-  const [sourceKey, targetVar] = pair;
-  return { sourceKey, targetVar };
+/**
+ * Emit every key under `path`, recursing into nested sub-folders so a nested
+ * block like `apple → paddlesup → [KEYS]` becomes path `/apple/paddlesup`.
+ */
+function emitFolder(path: string, entries: KeyEntry[], lines: string[]): void {
+  for (const entry of entries) {
+    if (typeof entry === "string") {
+      pushKey(lines, path, entry, entry);
+      continue;
+    }
+    const [pair] = Object.entries(entry);
+    if (!pair) throw new Error("empty key entry in secrets.json");
+    const [key, value] = pair;
+    if (Array.isArray(value)) {
+      // Nested sub-folder: descend, extending the container path.
+      emitFolder(`${path}/${key}`, value, lines);
+    } else {
+      // `{ SOURCE: TARGET }` alias — the emitted var differs from the vault key.
+      pushKey(lines, path, key, value);
+    }
+  }
+}
+
+function pushKey(
+  lines: string[],
+  path: string,
+  sourceKey: string,
+  targetVar: string
+): void {
+  lines.push("# infisical", `#     ${path}`);
+  if (sourceKey !== targetVar) lines.push(`#     ${sourceKey}`);
+  lines.push(`${targetVar}=`, "");
 }

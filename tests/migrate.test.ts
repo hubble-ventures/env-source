@@ -40,6 +40,27 @@ describe("migrateManifest", () => {
     expect(byVar.STRIPE_SECRET_KEY?.path).toBe("/stripe");
   });
 
+  it("flattens a nested sub-folder into a joined container path", () => {
+    const { files } = migrateManifest({
+      secrets: [
+        { apple: [{ paddlesup: ["APPLE_TEAM_ID", "MATCH_PASSWORD"] }] },
+      ],
+    });
+    const compiled = compile(parseEnvSource(files[0]!.content), config, {});
+    expect(compiled.bindings.map((b) => b.targetVar)).toEqual([
+      "APPLE_TEAM_ID",
+      "MATCH_PASSWORD",
+    ]);
+    // Both keys resolve under the joined /apple/paddlesup path — no comma-mashed var.
+    for (const b of compiled.bindings) {
+      expect(b.sources[0]).toEqual({
+        provider: "infisical",
+        path: "/apple/paddlesup",
+        sourceKey: b.targetVar,
+      });
+    }
+  });
+
   it("emits a profile as a sibling .env.<profile>.source", () => {
     const { files } = migrateManifest({
       secrets: [{ clerk: ["CLERK_SECRET_KEY"] }],
