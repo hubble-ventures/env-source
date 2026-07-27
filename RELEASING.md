@@ -30,28 +30,31 @@ GitHub repo already exists at `github.com/hubble-ventures/env-source` with
 
 ## Cutting a version
 
-Work on a branch, open a PR (CI gates it), and squash-merge to `main`. Then, on
-`main`:
+**The version is the tag** — there is no version-bump commit. `package.json` stays
+at a `0.0.0` placeholder; the release workflow reads the version from the tag and
+stamps it into `package.json` in the runner only (never committed) before
+publishing.
 
-1. Bump the version and rebuild (the `version` script runs the build so `dist/`
-   and `action/index.cjs` are fresh):
+To release:
+
+1. Merge the work you want to ship to `main` via PR (CI gates it).
+2. Tag a `main` commit and push the tag:
    ```bash
-   npm version minor        # or patch / major
-   ```
-2. Commit the version bump + rebuilt bundle, tag, and push:
-   ```bash
-   git commit -am "release: vX.Y.Z"
-   git tag vX.Y.Z
-   git push && git push --tags
+   git tag v0.3.2 origin/main       # pick the version; point at the commit to ship
+   git push origin v0.3.2
    ```
 
-The `vX.Y.Z` tag push triggers `.github/workflows/release.yml`, which then does
-the rest automatically:
+That tag push triggers `.github/workflows/release.yml`, which does the rest
+automatically:
 
+- **stamps the version** from the tag into `package.json` (runner only),
 - tests, builds, and `npm publish`es via OIDC,
 - **moves the floating `v1` tag** to this release (so `uses:
   hubble-ventures/env-source@v1` picks it up), and
 - **creates the GitHub Release** with auto-generated notes.
+
+Nothing is written back to `main` — the pipeline only touches npm, the `v1` tag,
+and the Release. Tags aren't branch-protected, so releasing needs no PR of its own.
 
 > The `v1` tag is hard-coded, not derived from the version. A breaking change to
 > the **action interface** (`action/action.yml` inputs) is a deliberate move to a
