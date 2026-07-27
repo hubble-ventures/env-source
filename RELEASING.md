@@ -30,6 +30,9 @@ GitHub repo already exists at `github.com/hubble-ventures/env-source` with
 
 ## Cutting a version
 
+Work on a branch, open a PR (CI gates it), and squash-merge to `main`. Then, on
+`main`:
+
 1. Bump the version and rebuild (the `version` script runs the build so `dist/`
    and `action/index.cjs` are fresh):
    ```bash
@@ -41,14 +44,18 @@ GitHub repo already exists at `github.com/hubble-ventures/env-source` with
    git tag vX.Y.Z
    git push && git push --tags
    ```
-   The tag push triggers `.github/workflows/release.yml`, which tests, builds,
-   and `npm publish`es.
-3. Move the floating major tag so `uses: hubble-ventures/env-source@v1` picks up
-   the release:
-   ```bash
-   git tag -f v1 vX.Y.Z
-   git push -f origin v1
-   ```
+
+The `vX.Y.Z` tag push triggers `.github/workflows/release.yml`, which then does
+the rest automatically:
+
+- tests, builds, and `npm publish`es via OIDC,
+- **moves the floating `v1` tag** to this release (so `uses:
+  hubble-ventures/env-source@v1` picks it up), and
+- **creates the GitHub Release** with auto-generated notes.
+
+> The `v1` tag is hard-coded, not derived from the version. A breaking change to
+> the **action interface** (`action/action.yml` inputs) is a deliberate move to a
+> new `v2` tag — update `release.yml` when that day comes.
 
 ## Notes
 
