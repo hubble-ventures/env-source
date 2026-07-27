@@ -8,7 +8,7 @@ on:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 permissions:
-  contents: read
+  contents: write # push the floating major tag + create the GitHub Release
   id-token: write # OIDC for npm trusted publishing (and provenance)
 
 jobs:
@@ -30,3 +30,16 @@ jobs:
       # Configure the trusted publisher on npmjs.com first (org: hubble-ventures,
       # repo: env-source, workflow: release.yml). Provenance is automatic.
       - run: npm publish --provenance --access public
+      # Point the floating major tag at this release so
+      # `uses: hubble-ventures/env-source@v1` resolves to it. Hard-coded to `v1`
+      # (not derived from the version) so a breaking change to the action
+      # interface is a deliberate move to `v2`, never an automatic one.
+      - name: Update floating major tag (v1)
+        run: |
+          git tag -f v1 HEAD
+          git push -f origin v1
+      # Publish a GitHub Release for this tag with auto-generated notes.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes
