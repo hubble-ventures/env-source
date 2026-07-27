@@ -23,6 +23,15 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1; guarantee it regardless of the
       # version bundled with Node.
       - run: npm install -g npm@latest
+      # The tag IS the version. Stamp it into package.json in the runner only
+      # (never committed) — the repo keeps a `0.0.0` placeholder, so a release is
+      # just a tag push with no version-bump commit. `npm pkg set` edits the file
+      # without running lifecycle scripts.
+      - name: Stamp version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm pkg set version="$VERSION"
+          echo "Releasing $VERSION"
       - run: npm install
       - run: npm test
       - run: npm run build
