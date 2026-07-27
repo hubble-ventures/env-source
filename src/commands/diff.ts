@@ -1,4 +1,5 @@
 import { compile } from "../core/compile.js";
+import { configProviderIds } from "../core/config.js";
 import { diffCompiled, isEmptyDelta } from "../core/diff.js";
 import { parseEnvSource } from "../core/parse.js";
 import type { CompiledManifest, ManifestDelta } from "../core/types.js";
@@ -51,11 +52,12 @@ export function diffAll(options: DiffOptions): ManifestDiff[] {
   const compileOpts = options.environment
     ? { environment: options.environment }
     : {};
+  const knownProviders = configProviderIds(options.loaded.config);
 
   const diffs: ManifestDiff[] = [];
   for (const file of files) {
     const head = compile(
-      loadManifest(file, options.profile),
+      loadManifest(file, options.profile, knownProviders),
       options.loaded.config,
       compileOpts
     );
@@ -70,7 +72,7 @@ export function diffAll(options: DiffOptions): ManifestDiff[] {
     // renders as added (no phantom settings diff).
     const base: CompiledManifest = isNew
       ? { ...head, bindings: [] }
-      : compile(parseEnvSource(baseRaw), options.loaded.config, compileOpts);
+      : compile(parseEnvSource(baseRaw, knownProviders), options.loaded.config, compileOpts);
 
     diffs.push({ file, delta: diffCompiled(base, head), isNew });
   }

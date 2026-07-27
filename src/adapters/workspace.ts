@@ -71,17 +71,19 @@ export function discoverManifests(root: string): ManifestFile[] {
 /**
  * Read and parse a discovered manifest. With a `profile`, a sibling
  * `.env.<profile>.source` in the same directory overrides the base file when it
- * exists; otherwise the base `.env.source` is used.
+ * exists; otherwise the base `.env.source` is used. `knownProviders` (from the
+ * config's `[providers.*]`) lets the parser tell a provider from a source key.
  */
 export function loadManifest(
   file: ManifestFile,
-  profile?: string
+  profile?: string,
+  knownProviders?: Iterable<string>
 ): ParsedManifest {
   const path =
     profile && existsSync(profileManifestPath(file.dir, profile))
       ? profileManifestPath(file.dir, profile)
       : file.path;
-  return parseEnvSource(readFileSync(path, "utf8"));
+  return parseEnvSource(readFileSync(path, "utf8"), knownProviders);
 }
 
 /** Path of a profile-suffixed manifest, e.g. `.env.deploy.source`. */

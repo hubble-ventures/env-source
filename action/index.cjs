@@ -4852,12 +4852,16 @@ function configEnvironment(config) {
 function configOutput(config) {
   return config.output ?? DEFAULT_OUTPUT;
 }
+function configProviderIds(config) {
+  return Object.keys(config.providers ?? {});
+}
 
 // src/core/parse.ts
 var IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 var PROVIDER_TOKEN = /^[a-z][a-z0-9-]*$/;
 var ENV_LIST = /^\(([^)]*)\)$/;
-function parseEnvSource(text) {
+function parseEnvSource(text, knownProviders) {
+  const known = knownProviders ? new Set(knownProviders) : void 0;
   const declarations = [];
   const issues = [];
   let group = [];
@@ -4911,7 +4915,7 @@ function parseEnvSource(text) {
       pendingSourceKey = void 0;
       return;
     }
-    if (PROVIDER_TOKEN.test(body)) {
+    if (PROVIDER_TOKEN.test(body) && (known === void 0 || known.has(body) || !current)) {
       if (!blockHasProvider) group = [];
       current = { provider: body };
       group.push(current);
@@ -4997,9 +5001,9 @@ function discoverManifests(root) {
   });
   return found.sort((a, b) => a.id.localeCompare(b.id));
 }
-function loadManifest(file, profile) {
+function loadManifest(file, profile, knownProviders) {
   const path = profile && (0, import_node_fs.existsSync)(profileManifestPath(file.dir, profile)) ? profileManifestPath(file.dir, profile) : file.path;
-  return parseEnvSource((0, import_node_fs.readFileSync)(path, "utf8"));
+  return parseEnvSource((0, import_node_fs.readFileSync)(path, "utf8"), knownProviders);
 }
 function profileManifestPath(dir, profile) {
   return (0, import_node_path.join)(dir, `.env.${profile}.source`);
@@ -5257,10 +5261,11 @@ function diffAll(options) {
   if (!baseSha) throw new Error(`Unknown base ref: ${options.base}`);
   const files = selectManifests(discoverManifests(root), options.ids ?? []);
   const compileOpts = options.environment ? { environment: options.environment } : {};
+  const knownProviders = configProviderIds(options.loaded.config);
   const diffs = [];
   for (const file of files) {
     const head = compile(
-      loadManifest(file, options.profile),
+      loadManifest(file, options.profile, knownProviders),
       options.loaded.config,
       compileOpts
     );
@@ -5268,7 +5273,7 @@ function diffAll(options) {
     const repoRelative = gitRelativePath(resolvedPath, root);
     const baseRaw = repoRelative === null ? null : readTextAtRef(baseSha, repoRelative, root);
     const isNew = baseRaw === null;
-    const base = isNew ? { ...head, bindings: [] } : compile(parseEnvSource(baseRaw), options.loaded.config, compileOpts);
+    const base = isNew ? { ...head, bindings: [] } : compile(parseEnvSource(baseRaw, knownProviders), options.loaded.config, compileOpts);
     diffs.push({ file, delta: diffCompiled(base, head), isNew });
   }
   return diffs;
@@ -5608,13 +5613,14 @@ async function buildInfisical(config, ctx) {
 // src/commands/pull.ts
 async function resolveManifests(options) {
   const { loaded, ctx } = options;
+  const knownProviders = configProviderIds(loaded.config);
   const files = selectManifests(
     discoverManifests(loaded.root),
     options.ids ?? []
   );
   const compiled = files.map((file) => ({
     file,
-    manifest: compile(loadManifest(file, options.profile), loaded.config, {
+    manifest: compile(loadManifest(file, options.profile, knownProviders), loaded.config, {
       ...options.environment ? { environment: options.environment } : {},
       ...options.output ? { output: options.output } : {}
     })
@@ -5724,12 +5730,17 @@ async function validateAll(options) {
   );
   const checkValues = options.checkValues ?? false;
   const useProviders = options.againstProviders || checkValues;
+  const knownProviders = configProviderIds(loaded.config);
   const results = [];
   for (const file of files) {
     try {
-      const manifest = compile(loadManifest(file, options.profile), loaded.config, {
-        ...options.environment ? { environment: options.environment } : {}
-      });
+      const manifest = compile(
+        loadManifest(file, options.profile, knownProviders),
+        loaded.config,
+        {
+          ...options.environment ? { environment: options.environment } : {}
+        }
+      );
       let providers;
       if (useProviders) {
         const ids = manifest.bindings.flatMap(

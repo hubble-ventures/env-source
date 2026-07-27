@@ -205,6 +205,33 @@ describe("parseEnvSource", () => {
     ]);
   });
 
+  it("treats a lowercase source-key as an alias, not a provider, given known providers", () => {
+    const text = ["# infisical", "#     /auth", "#     token", "API_TOKEN="].join("\n");
+
+    // Without the known-provider hint, a bare lowercase token looks like a provider.
+    const naive = parseEnvSource(text);
+    expect(naive.declarations[0]?.sources.map((s) => s.provider)).toEqual([
+      "infisical",
+      "token",
+    ]);
+
+    // With `infisical` known, `token` is correctly read as the source key.
+    const smart = parseEnvSource(text, ["infisical"]);
+    expect(smart.declarations[0]?.sources).toEqual([
+      { provider: "infisical", path: "/auth", sourceKey: "token" },
+    ]);
+  });
+
+  it("still treats an unknown token in provider position as a provider", () => {
+    // First line of a group with no configured provider — downstream reports it
+    // as an unknown provider rather than silently swallowing the group.
+    const { declarations } = parseEnvSource(
+      ["# vault", "#     /kv", "SECRET="].join("\n"),
+      ["infisical"]
+    );
+    expect(declarations[0]?.sources[0]?.provider).toBe("vault");
+  });
+
   it("flags an invalid variable name", () => {
     const { issues } = parseEnvSource("1BAD=x");
     expect(issues[0]?.code).toBe("invalid_var_name");

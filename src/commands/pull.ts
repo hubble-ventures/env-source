@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { compile } from "../core/compile.js";
+import { configProviderIds } from "../core/config.js";
 import { serializeDotenv } from "../core/dotenv.js";
 import { materialize } from "../core/materialize.js";
 import type { CompiledManifest } from "../core/types.js";
@@ -40,6 +41,7 @@ export async function resolveManifests(
   options: ResolveOptions
 ): Promise<ResolvedManifest[]> {
   const { loaded, ctx } = options;
+  const knownProviders = configProviderIds(loaded.config);
   const files = selectManifests(
     discoverManifests(loaded.root),
     options.ids ?? []
@@ -47,7 +49,7 @@ export async function resolveManifests(
 
   const compiled = files.map((file) => ({
     file,
-    manifest: compile(loadManifest(file, options.profile), loaded.config, {
+    manifest: compile(loadManifest(file, options.profile, knownProviders), loaded.config, {
       ...(options.environment ? { environment: options.environment } : {}),
       ...(options.output ? { output: options.output } : {}),
     }),

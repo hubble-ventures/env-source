@@ -38,8 +38,18 @@ const ENV_LIST = /^\(([^)]*)\)$/;
  * *chain*. `# literal` clears the provider context so the keys below are literals
  * (also the state at the top of a file, before any decorator). A comment whose
  * lines are not decorator-shaped is a plain comment and is ignored.
+ *
+ * `knownProviders` (the ids configured in `env-source.toml`) disambiguates a bare
+ * lowercase token *inside* a group: it is a new provider only when known,
+ * otherwise it is a source-key alias — so a vault key literally named `token` is
+ * not mistaken for a provider. Omit it (as tests may) and every provider-shaped
+ * token is treated as a provider, preserving the original behavior.
  */
-export function parseEnvSource(text: string): ParsedManifest {
+export function parseEnvSource(
+  text: string,
+  knownProviders?: Iterable<string>
+): ParsedManifest {
+  const known = knownProviders ? new Set(knownProviders) : undefined;
   const declarations: Declaration[] = [];
   const issues: Issue[] = [];
 
@@ -114,8 +124,16 @@ export function parseEnvSource(text: string): ParsedManifest {
       return;
     }
 
-    if (PROVIDER_TOKEN.test(body)) {
-      // First provider since the last assignment/blank opens a fresh group;
+    // A provider-shaped token opens/extends a group when it names a known
+    // provider, or when we're in provider position (no source is being built, so
+    // a source-key would make no sense — e.g. the first line of a group, which
+    // downstream reports clearly if the provider is unconfigured). Otherwise it
+    // falls through and is read as a source-key alias.
+    if (
+      PROVIDER_TOKEN.test(body) &&
+      (known === undefined || known.has(body) || !current)
+    ) {
+      // First provider since the last assignment opens a fresh group;
       // a subsequent one extends the fallback chain.
       if (!blockHasProvider) group = [];
       current = { provider: body };
