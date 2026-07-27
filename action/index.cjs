@@ -4852,26 +4852,31 @@ function configEnvironment(config) {
 function configOutput(config) {
   return config.output ?? DEFAULT_OUTPUT;
 }
+function configProviderIds(config) {
+  return Object.keys(config.providers ?? {});
+}
 
 // src/core/parse.ts
 var IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 var PROVIDER_TOKEN = /^[a-z][a-z0-9-]*$/;
 var ENV_LIST = /^\(([^)]*)\)$/;
-function parseEnvSource(text) {
+function parseEnvSource(text, knownProviders) {
+  const known = knownProviders ? new Set(knownProviders) : void 0;
   const declarations = [];
   const issues = [];
-  let pending = null;
+  let group = [];
+  let current;
+  let blockHasProvider = false;
+  let pendingSourceKey;
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i] ?? "";
-    const line = rawLine.trim();
+    const line = (lines[i] ?? "").trim();
     const lineNo = i + 1;
-    if (line === "") {
-      pending = null;
-      continue;
-    }
+    if (line === "") continue;
     if (line.startsWith("#")) {
-      (pending ??= []).push(line.replace(/^#\s?/, ""));
+      const body = line.replace(/^#+/, "").trim();
+      if (body === "") continue;
+      applyDecorator(body);
       continue;
     }
     const eq = line.indexOf("=");
@@ -4882,7 +4887,8 @@ function parseEnvSource(text) {
         line: lineNo,
         message: `Expected 'KEY=value' or a comment, got: ${line}`
       });
-      pending = null;
+      blockHasProvider = false;
+      pendingSourceKey = void 0;
       continue;
     }
     const targetVar = line.slice(0, eq).trim();
@@ -4894,30 +4900,66 @@ function parseEnvSource(text) {
         key: targetVar,
         message: `Invalid variable name '${targetVar}'`
       });
-      pending = null;
+      blockHasProvider = false;
+      pendingSourceKey = void 0;
       continue;
     }
-    const declaration = buildDeclaration(
-      targetVar,
-      line.slice(eq + 1),
-      pending ?? [],
-      lineNo,
-      issues
-    );
-    declarations.push(declaration);
-    pending = null;
+    emit(targetVar, line.slice(eq + 1), lineNo);
   }
   return { declarations, issues };
-}
-function buildDeclaration(targetVar, rawValue, decorator, line, issues) {
-  const declaration = {
-    targetVar,
-    sources: parseDecorator(decorator, targetVar, line, issues),
-    line
-  };
-  const def = parseDefault(rawValue);
-  if (def !== void 0) declaration.default = def;
-  return declaration;
+  function applyDecorator(body) {
+    if (body === "literal") {
+      group = [];
+      current = void 0;
+      blockHasProvider = false;
+      pendingSourceKey = void 0;
+      return;
+    }
+    if (PROVIDER_TOKEN.test(body) && (known === void 0 || known.has(body) || !current)) {
+      if (!blockHasProvider) group = [];
+      current = { provider: body };
+      group.push(current);
+      blockHasProvider = true;
+      return;
+    }
+    const env = ENV_LIST.exec(body);
+    if (env) {
+      if (current) {
+        current.environments = env[1].split(",").map((s) => s.trim()).filter((s) => s !== "");
+      }
+      return;
+    }
+    if (body.includes("/")) {
+      if (current) current.path = body;
+      return;
+    }
+    if (IDENT.test(body)) {
+      if (blockHasProvider && current) current.sourceKey = body;
+      else if (group.length > 0) pendingSourceKey = body;
+      return;
+    }
+  }
+  function emit(targetVar, rawValue, lineNo) {
+    const sources = group.map((s) => {
+      const copy = { provider: s.provider };
+      if (s.path !== void 0) copy.path = s.path;
+      if (s.sourceKey !== void 0) copy.sourceKey = s.sourceKey;
+      if (s.environments !== void 0) copy.environments = [...s.environments];
+      return copy;
+    });
+    if (pendingSourceKey !== void 0 && sources.length > 0) {
+      sources[sources.length - 1].sourceKey = pendingSourceKey;
+    }
+    const declaration = { targetVar, sources, line: lineNo };
+    const def = parseDefault(rawValue);
+    if (def !== void 0) declaration.default = def;
+    declarations.push(declaration);
+    for (const s of group) {
+      delete s.sourceKey;
+    }
+    pendingSourceKey = void 0;
+    blockHasProvider = false;
+  }
 }
 function parseDefault(rawValue) {
   const trimmed = rawValue.trim();
@@ -4927,43 +4969,6 @@ function parseDefault(rawValue) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
-}
-function parseDecorator(decorator, targetVar, line, issues) {
-  const content = decorator.map((l) => l.trim()).filter((l) => l !== "");
-  if (content.length === 0) return [];
-  const sources = [];
-  let current;
-  for (const raw of content) {
-    if (PROVIDER_TOKEN.test(raw)) {
-      current = { provider: raw };
-      sources.push(current);
-      continue;
-    }
-    if (!current) {
-      return [];
-    }
-    const envMatch = ENV_LIST.exec(raw);
-    if (envMatch) {
-      current.environments = (envMatch[1] ?? "").split(",").map((s) => s.trim()).filter((s) => s !== "");
-      continue;
-    }
-    if (raw.includes("/")) {
-      current.path = raw;
-      continue;
-    }
-    if (IDENT.test(raw)) {
-      current.sourceKey = raw;
-      continue;
-    }
-    issues.push({
-      level: "warning",
-      code: "unrecognized_decorator",
-      line,
-      key: targetVar,
-      message: `Ignored unrecognized decorator line for '${targetVar}': ${raw}`
-    });
-  }
-  return sources;
 }
 
 // src/adapters/workspace.ts
@@ -4996,9 +5001,9 @@ function discoverManifests(root) {
   });
   return found.sort((a, b) => a.id.localeCompare(b.id));
 }
-function loadManifest(file, profile) {
+function loadManifest(file, profile, knownProviders) {
   const path = profile && (0, import_node_fs.existsSync)(profileManifestPath(file.dir, profile)) ? profileManifestPath(file.dir, profile) : file.path;
-  return parseEnvSource((0, import_node_fs.readFileSync)(path, "utf8"));
+  return parseEnvSource((0, import_node_fs.readFileSync)(path, "utf8"), knownProviders);
 }
 function profileManifestPath(dir, profile) {
   return (0, import_node_path.join)(dir, `.env.${profile}.source`);
@@ -5256,10 +5261,11 @@ function diffAll(options) {
   if (!baseSha) throw new Error(`Unknown base ref: ${options.base}`);
   const files = selectManifests(discoverManifests(root), options.ids ?? []);
   const compileOpts = options.environment ? { environment: options.environment } : {};
+  const knownProviders = configProviderIds(options.loaded.config);
   const diffs = [];
   for (const file of files) {
     const head = compile(
-      loadManifest(file, options.profile),
+      loadManifest(file, options.profile, knownProviders),
       options.loaded.config,
       compileOpts
     );
@@ -5267,7 +5273,7 @@ function diffAll(options) {
     const repoRelative = gitRelativePath(resolvedPath, root);
     const baseRaw = repoRelative === null ? null : readTextAtRef(baseSha, repoRelative, root);
     const isNew = baseRaw === null;
-    const base = isNew ? { ...head, bindings: [] } : compile(parseEnvSource(baseRaw), options.loaded.config, compileOpts);
+    const base = isNew ? { ...head, bindings: [] } : compile(parseEnvSource(baseRaw, knownProviders), options.loaded.config, compileOpts);
     diffs.push({ file, delta: diffCompiled(base, head), isNew });
   }
   return diffs;
@@ -5607,13 +5613,14 @@ async function buildInfisical(config, ctx) {
 // src/commands/pull.ts
 async function resolveManifests(options) {
   const { loaded, ctx } = options;
+  const knownProviders = configProviderIds(loaded.config);
   const files = selectManifests(
     discoverManifests(loaded.root),
     options.ids ?? []
   );
   const compiled = files.map((file) => ({
     file,
-    manifest: compile(loadManifest(file, options.profile), loaded.config, {
+    manifest: compile(loadManifest(file, options.profile, knownProviders), loaded.config, {
       ...options.environment ? { environment: options.environment } : {},
       ...options.output ? { output: options.output } : {}
     })
@@ -5723,12 +5730,17 @@ async function validateAll(options) {
   );
   const checkValues = options.checkValues ?? false;
   const useProviders = options.againstProviders || checkValues;
+  const knownProviders = configProviderIds(loaded.config);
   const results = [];
   for (const file of files) {
     try {
-      const manifest = compile(loadManifest(file, options.profile), loaded.config, {
-        ...options.environment ? { environment: options.environment } : {}
-      });
+      const manifest = compile(
+        loadManifest(file, options.profile, knownProviders),
+        loaded.config,
+        {
+          ...options.environment ? { environment: options.environment } : {}
+        }
+      );
       let providers;
       if (useProviders) {
         const ids = manifest.bindings.flatMap(

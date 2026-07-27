@@ -89,11 +89,147 @@ describe("parseEnvSource", () => {
     });
   });
 
-  it("does not attach a comment separated from the assignment by a blank line", () => {
+  it("carries a decorator across a blank line (blanks are cosmetic)", () => {
     const { declarations } = parseEnvSource(
       ["# infisical", "#     /shared", "", "A=1"].join("\n")
     );
-    expect(declarations[0]?.sources).toEqual([]);
+    expect(declarations[0]?.sources).toEqual([
+      { provider: "infisical", path: "/shared" },
+    ]);
+  });
+
+  it("never attaches a prose comment, blank line or not", () => {
+    const { declarations } = parseEnvSource(
+      ["# stripe keys go here", "", "STRIPE_KEY=abc"].join("\n")
+    );
+    expect(declarations[0]).toMatchObject({
+      targetVar: "STRIPE_KEY",
+      sources: [],
+      default: "abc",
+    });
+  });
+
+  it("applies a sticky group across blank lines until a new decorator", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "# (development,production)",
+        "#     /clerk",
+        "CLERK_SECRET_KEY=",
+        "", // cosmetic — must NOT end the group
+        "GOOGLE_IOS_CLIENT_ID=",
+      ].join("\n")
+    );
+    const expected = [
+      {
+        provider: "infisical",
+        path: "/clerk",
+        environments: ["development", "production"],
+      },
+    ];
+    expect(declarations[0]?.sources).toEqual(expected);
+    // The blank line did not reset the group — the second key still inherits it.
+    expect(declarations[1]?.sources).toEqual(expected);
+  });
+
+  it("resets to literals with a `# literal` line", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "#     /clerk",
+        "CLERK_SECRET_KEY=",
+        "",
+        "# literal",
+        "NODE_ENV=production",
+        "PORT=8080",
+      ].join("\n")
+    );
+    expect(declarations[0]?.sources[0]).toMatchObject({ path: "/clerk" });
+    // After `# literal`, both keys are provider-less literals.
+    expect(declarations[1]).toMatchObject({
+      targetVar: "NODE_ENV",
+      sources: [],
+      default: "production",
+    });
+    expect(declarations[2]).toMatchObject({
+      targetVar: "PORT",
+      sources: [],
+      default: "8080",
+    });
+  });
+
+  it("treats a source-key line as one-shot (aliases only the next key)", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "#     /clerk",
+        "CLERK_SECRET_KEY=",
+        "#     CLERK_PUBLISHABLE_KEY",
+        "VITE_CLERK_PUBLISHABLE_KEY=",
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=",
+      ].join("\n")
+    );
+    // First key: plain, no alias.
+    expect(declarations[0]?.sources[0]).toEqual({ provider: "infisical", path: "/clerk" });
+    // Aliased key: source key overridden for this one only.
+    expect(declarations[1]?.sources[0]).toEqual({
+      provider: "infisical",
+      path: "/clerk",
+      sourceKey: "CLERK_PUBLISHABLE_KEY",
+    });
+    // The alias did NOT leak — the third key reverts to its own name.
+    expect(declarations[2]?.sources[0]).toEqual({ provider: "infisical", path: "/clerk" });
+  });
+
+  it("keeps per-source aliases in a chain without leaking to later keys", () => {
+    const { declarations } = parseEnvSource(
+      [
+        "# infisical",
+        "#     /shared",
+        "#     PRIMARY",
+        "# vault",
+        "#     /team/item",
+        "#     FIELD",
+        "TOKEN=",
+        "PLAIN=",
+      ].join("\n")
+    );
+    expect(declarations[0]?.sources).toEqual([
+      { provider: "infisical", path: "/shared", sourceKey: "PRIMARY" },
+      { provider: "vault", path: "/team/item", sourceKey: "FIELD" },
+    ]);
+    // Next sticky key reuses the chain's providers/paths but its own key names.
+    expect(declarations[1]?.sources).toEqual([
+      { provider: "infisical", path: "/shared" },
+      { provider: "vault", path: "/team/item" },
+    ]);
+  });
+
+  it("treats a lowercase source-key as an alias, not a provider, given known providers", () => {
+    const text = ["# infisical", "#     /auth", "#     token", "API_TOKEN="].join("\n");
+
+    // Without the known-provider hint, a bare lowercase token looks like a provider.
+    const naive = parseEnvSource(text);
+    expect(naive.declarations[0]?.sources.map((s) => s.provider)).toEqual([
+      "infisical",
+      "token",
+    ]);
+
+    // With `infisical` known, `token` is correctly read as the source key.
+    const smart = parseEnvSource(text, ["infisical"]);
+    expect(smart.declarations[0]?.sources).toEqual([
+      { provider: "infisical", path: "/auth", sourceKey: "token" },
+    ]);
+  });
+
+  it("still treats an unknown token in provider position as a provider", () => {
+    // First line of a group with no configured provider — downstream reports it
+    // as an unknown provider rather than silently swallowing the group.
+    const { declarations } = parseEnvSource(
+      ["# vault", "#     /kv", "SECRET="].join("\n"),
+      ["infisical"]
+    );
+    expect(declarations[0]?.sources[0]?.provider).toBe("vault");
   });
 
   it("flags an invalid variable name", () => {

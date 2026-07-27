@@ -64,3 +64,9 @@ export function configEnvironment(config: EnvSourceConfig): string {
 export function configOutput(config: EnvSourceConfig): string {
   return config.output ?? DEFAULT_OUTPUT;
 }
+
+/** The provider ids declared under `[providers.*]` — passed to the parser to
+ * disambiguate a bare token (known provider vs. source-key alias). */
+export function configProviderIds(config: EnvSourceConfig): string[] {
+  return Object.keys(config.providers ?? {});
+}

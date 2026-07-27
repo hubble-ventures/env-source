@@ -1,4 +1,5 @@
 import { compile } from "../core/compile.js";
+import { configProviderIds } from "../core/config.js";
 import {
   discoverManifests,
   type LoadedConfig,
@@ -20,8 +21,9 @@ export function listManifests(
   environment?: string,
   profile?: string
 ): ManifestSummary[] {
+  const knownProviders = configProviderIds(loaded.config);
   return discoverManifests(loaded.root).map((file) => {
-    const manifest = compile(loadManifest(file, profile), loaded.config, {
+    const manifest = compile(loadManifest(file, profile, knownProviders), loaded.config, {
       ...(environment ? { environment } : {}),
     });
     const providers = [

@@ -73,51 +73,62 @@ export function migrateManifest(raw: unknown): MigrationResult {
   return { files, warnings };
 }
 
-/** Render an ordered list of folder blocks into decorated `.env.source` text. */
+type Binding = { sourceKey: string; targetVar: string };
+
+/**
+ * Render folder blocks into decorated `.env.source` text using the sticky-group
+ * form: one `# infisical` / `#  /path` header per container path, then all its
+ * keys below it. An aliased key gets a one-shot `#  SOURCE_KEY` line before it.
+ */
 function renderBlocks(blocks: SecretsBlock[]): string {
+  // Group every binding by its (recursively joined) container path, preserving
+  // first-seen order of both paths and keys.
+  const byPath = new Map<string, Binding[]>();
+  const collect = (path: string, entries: KeyEntry[]): void => {
+    for (const entry of entries) {
+      if (typeof entry === "string") {
+        add(byPath, path, entry, entry);
+        continue;
+      }
+      const [pair] = Object.entries(entry);
+      if (!pair) throw new Error("empty key entry in secrets.json");
+      const [key, value] = pair;
+      if (Array.isArray(value)) {
+        collect(`${path}/${key}`, value); // nested sub-folder → extend the path
+      } else {
+        add(byPath, path, key, value); // `{ SOURCE: TARGET }` alias
+      }
+    }
+  };
+  for (const block of blocks) {
+    for (const [folder, entries] of Object.entries(block)) {
+      collect(`/${folder.replace(/^\/+/, "")}`, entries);
+    }
+  }
+
   const lines: string[] = [
     "# Migrated from secrets.json by `env-source migrate`.",
     "# Review paths and add environment scopes/defaults as needed.",
     "",
   ];
-  for (const block of blocks) {
-    for (const [folder, entries] of Object.entries(block)) {
-      emitFolder(`/${folder.replace(/^\/+/, "")}`, entries, lines);
+  for (const [path, bindings] of byPath) {
+    lines.push("# infisical", `#     ${path}`);
+    for (const { sourceKey, targetVar } of bindings) {
+      if (sourceKey !== targetVar) lines.push(`#     ${sourceKey}`);
+      lines.push(`${targetVar}=`);
     }
+    lines.push(""); // blank line closes the sticky group
   }
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-/**
- * Emit every key under `path`, recursing into nested sub-folders so a nested
- * block like `apple → paddlesup → [KEYS]` becomes path `/apple/paddlesup`.
- */
-function emitFolder(path: string, entries: KeyEntry[], lines: string[]): void {
-  for (const entry of entries) {
-    if (typeof entry === "string") {
-      pushKey(lines, path, entry, entry);
-      continue;
-    }
-    const [pair] = Object.entries(entry);
-    if (!pair) throw new Error("empty key entry in secrets.json");
-    const [key, value] = pair;
-    if (Array.isArray(value)) {
-      // Nested sub-folder: descend, extending the container path.
-      emitFolder(`${path}/${key}`, value, lines);
-    } else {
-      // `{ SOURCE: TARGET }` alias — the emitted var differs from the vault key.
-      pushKey(lines, path, key, value);
-    }
-  }
-}
-
-function pushKey(
-  lines: string[],
+function add(
+  byPath: Map<string, Binding[]>,
   path: string,
   sourceKey: string,
   targetVar: string
 ): void {
-  lines.push("# infisical", `#     ${path}`);
-  if (sourceKey !== targetVar) lines.push(`#     ${sourceKey}`);
-  lines.push(`${targetVar}=`, "");
+  const bindings = byPath.get(path) ?? [];
+  byPath.set(path, bindings);
+  bindings.push({ sourceKey, targetVar });
 }

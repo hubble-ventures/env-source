@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+Sticky decorators — a decorator now applies to every assignment below it, so you
+declare a provider and path once per group instead of repeating them per key.
+
+- **Sticky provider / path / environments**: a decorator block carries down to
+  every following assignment until the next decorator changes it.
+- **Blank lines are cosmetic** — they no longer end a group (removes the
+  whitespace-significance footgun).
+- **`# literal`** resets the provider context so the keys below are literals
+  (literals also work at the top of a file, before any decorator).
+- **Source-key aliases are one-shot** — a bare `#  SOURCE_KEY` line aliases only
+  the next key, and never leaks into later sticky keys.
+- **Provider vs. source-key disambiguation**: the parser is given the provider
+  ids from `env-source.toml`, so a container key that is a lowercase word
+  (`token`, `secret`) is read as a source key, not mistaken for a provider.
+- **`migrate`** emits the compact grouped form.
+- Fully backward compatible: existing (repeated-block) manifests parse identically.
+
 ## 0.2.2
 
 - Fix `migrate`: nested folder blocks in a legacy `secrets.json` (e.g.

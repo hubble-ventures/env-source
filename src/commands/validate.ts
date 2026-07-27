@@ -1,4 +1,5 @@
 import { compile } from "../core/compile.js";
+import { configProviderIds } from "../core/config.js";
 import { EnvSourceError } from "../core/errors.js";
 import type { Issue } from "../core/types.js";
 import { validate } from "../core/validate.js";
@@ -42,11 +43,15 @@ export async function validateAll(
   );
   const checkValues = options.checkValues ?? false;
   const useProviders = options.againstProviders || checkValues;
+  const knownProviders = configProviderIds(loaded.config);
 
   const results: ValidateResult[] = [];
   for (const file of files) {
     try {
-      const manifest = compile(loadManifest(file, options.profile), loaded.config, {
+      const manifest = compile(
+        loadManifest(file, options.profile, knownProviders),
+        loaded.config,
+        {
         ...(options.environment ? { environment: options.environment } : {}),
       });
       let providers: Awaited<ReturnType<typeof resolveProviders>> | undefined;
