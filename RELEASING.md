@@ -6,15 +6,32 @@
 - the **GitHub Action** `hubble-ventures/env-source@v1` (the committed
   `action/index.cjs` bundle).
 
-## One-time GitHub / npm setup (needs your credentials)
+## Publishing auth: npm Trusted Publishing (OIDC) — no stored token
 
-1. Create the GitHub repo `hubble-ventures/env-source` and add the remote:
+The release workflow publishes to npm using the workflow's **OIDC identity**, not
+a stored `NPM_TOKEN` (`permissions: id-token: write` in `release.yml`). Ongoing
+releases need no secret.
+
+**Bootstrap caveat:** OIDC cannot perform a package's *first* publish — npm
+requires the package to exist before you can attach a trusted publisher. So do
+this once:
+
+1. **First publish (bootstrap), from your machine while logged in to npm:**
    ```bash
-   git remote add origin git@github.com:hubble-ventures/env-source.git
-   git push -u origin main
+   npm login                    # if not already
+   npm run build
+   npm publish --access public  # creates @hubble-ventures/env-source on npm
    ```
-2. Add an npm automation token as the repo secret `NPM_TOKEN` (Settings →
-   Secrets → Actions). The release workflow publishes with `--provenance`.
+2. **Configure the trusted publisher** on npmjs.com → the package → Settings →
+   *Trusted Publisher* → GitHub Actions:
+   - Organization/user: `hubble-ventures`
+   - Repository: `env-source`
+   - Workflow filename: `release.yml`
+   - Environment: *(leave blank, or add one and gate the job on it)*
+3. From then on, every tagged release publishes via OIDC — **no token, ever.**
+
+(The GitHub repo already exists at `github.com/hubble-ventures/env-source` with
+`origin` set.)
 
 ## Cutting a version
 

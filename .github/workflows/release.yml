@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # OIDC for npm trusted publishing (and provenance)
 
 jobs:
   publish:
@@ -17,9 +17,13 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; guarantee it regardless of the
+      # version bundled with Node.
+      - run: npm install -g npm@latest
       - run: npm install
       - run: npm test
       - run: npm run build
+      # No NODE_AUTH_TOKEN: npm authenticates via this workflow's OIDC identity.
+      # Configure the trusted publisher on npmjs.com first (org: hubble-ventures,
+      # repo: env-source, workflow: release.yml). Provenance is automatic.
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
