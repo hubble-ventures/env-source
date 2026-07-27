@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Release-automation shakeout: `release.yml` now auto-moves the `v1` tag and
+  creates a GitHub Release after publishing. No library or CLI changes.
+
 ## 0.3.0
 
 Sticky decorators — a decorator now applies to every assignment below it, so you
