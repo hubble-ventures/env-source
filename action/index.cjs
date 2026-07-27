@@ -5290,24 +5290,6 @@ function diffTotals(diffs) {
 // src/commands/pull.ts
 var import_node_path2 = require("path");
 
-// src/core/dotenv.ts
-function parseDotenv(text) {
-  const out = {};
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let value = trimmed.slice(eq + 1).trim();
-    if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-      value = value.slice(1, -1);
-    }
-    out[key] = value;
-  }
-  return out;
-}
-
 // src/core/materialize.ts
 async function materialize(compiled, providers) {
   const cache = await readAll(compiled, providers);
@@ -5439,43 +5421,67 @@ var InfisicalApiProvider = class _InfisicalApiProvider {
     });
   }
   async read(environment, path, keys) {
-    const wanted = new Set(keys);
-    const folder = await this.readFolder(environment, path);
     const out = {};
-    for (const [key, value] of Object.entries(folder)) {
-      if (wanted.has(key)) out[key] = value;
-    }
+    await Promise.all(
+      keys.map(async (key) => {
+        const value = await this.getSecret(environment, path, key);
+        if (value !== void 0) out[key] = value;
+      })
+    );
     return out;
   }
-  /**
-   * Assert which keys exist without surfacing values. Infisical's raw API returns
-   * values, so we read then discard them here — the value never leaves this method.
-   */
   async peek(environment, path, keys) {
-    const present = new Set(Object.keys(await this.readFolder(environment, path)));
-    return new Set(keys.filter((k) => present.has(k)));
+    const present = /* @__PURE__ */ new Set();
+    await Promise.all(
+      keys.map(async (key) => {
+        if (await this.hasSecret(environment, path, key)) present.add(key);
+      })
+    );
+    return present;
   }
-  async readFolder(environment, path) {
-    const url = new URL(`${this.baseUrl}/api/v3/secrets/raw`);
+  /** Fetch one secret's value, or `undefined` when it does not exist (404). */
+  getSecret(environment, path, key) {
+    return withRetry(async () => {
+      const res = await fetch(this.secretUrl(environment, path, key), {
+        headers: { authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS2)
+      });
+      if (res.status === 404) return void 0;
+      if (!res.ok) {
+        throw new Error(
+          `Infisical read failed for ${path}:${key} (${res.status}): ${await res.text()}`
+        );
+      }
+      const data = await res.json();
+      return data.secret.secretValue;
+    }, this.retry);
+  }
+  /** Assert one secret exists without parsing its value. */
+  hasSecret(environment, path, key) {
+    return withRetry(async () => {
+      const res = await fetch(this.secretUrl(environment, path, key), {
+        headers: { authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS2)
+      });
+      if (res.status === 404) return false;
+      if (!res.ok) {
+        throw new Error(
+          `Infisical peek failed for ${path}:${key} (${res.status}): ${await res.text()}`
+        );
+      }
+      return true;
+    }, this.retry);
+  }
+  secretUrl(environment, path, key) {
+    const url = new URL(
+      `${this.baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`
+    );
     url.searchParams.set("workspaceSlug", this.project);
     url.searchParams.set("environment", environment);
     url.searchParams.set("secretPath", path);
-    url.searchParams.set("include_imports", "true");
     url.searchParams.set("expandSecretReferences", "true");
-    const res = await withRetry(
-      () => fetchOk(url, {
-        headers: { authorization: `Bearer ${this.token}` },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS2)
-      }),
-      this.retry
-    );
-    const data = await res.json();
-    const out = {};
-    for (const imp of data.imports ?? []) {
-      for (const s of imp.secrets ?? []) out[s.secretKey] = s.secretValue;
-    }
-    for (const s of data.secrets) out[s.secretKey] = s.secretValue;
-    return out;
+    url.searchParams.set("include_imports", "true");
+    return url;
   }
 };
 var defaultSpawn = (command, args) => {
@@ -5486,6 +5492,7 @@ var defaultSpawn = (command, args) => {
     stderr: r.stderr ?? (r.error ? String(r.error.message) : "")
   };
 };
+var NOT_FOUND = /not found|does not exist|no secret|secret .* not found/i;
 var InfisicalCliProvider = class {
   id = "infisical";
   projectId;
@@ -5497,35 +5504,45 @@ var InfisicalCliProvider = class {
     this.retry = options.retry ?? {};
   }
   async read(environment, path, keys) {
-    const wanted = new Set(keys);
-    const folder = await this.exportFolder(environment, path);
     const out = {};
-    for (const [key, value] of Object.entries(folder)) {
-      if (wanted.has(key)) out[key] = value;
-    }
+    await Promise.all(
+      keys.map(async (key) => {
+        const value = await this.getSecret(environment, path, key);
+        if (value !== void 0) out[key] = value;
+      })
+    );
     return out;
   }
   async peek(environment, path, keys) {
-    const present = new Set(Object.keys(await this.exportFolder(environment, path)));
-    return new Set(keys.filter((k) => present.has(k)));
+    const present = /* @__PURE__ */ new Set();
+    await Promise.all(
+      keys.map(async (key) => {
+        if (await this.getSecret(environment, path, key) !== void 0) {
+          present.add(key);
+        }
+      })
+    );
+    return present;
   }
-  exportFolder(environment, path) {
+  /** Read one secret via the CLI, or `undefined` when it does not exist. */
+  getSecret(environment, path, key) {
     return withRetry(() => {
       const result = this.spawn("infisical", [
-        "export",
+        "secrets",
+        "get",
+        key,
         `--projectId=${this.projectId}`,
         `--env=${environment}`,
         `--path=${path}`,
-        "--format=dotenv",
+        "--plain",
         "--silent"
       ]);
-      if (result.status !== 0) {
-        const detail = (result.stderr || result.stdout).trim();
-        throw new Error(
-          `infisical export failed for ${path} (${environment}): ${detail || "is the Infisical CLI installed and are you logged in? (`infisical login`)"}`
-        );
-      }
-      return parseDotenv(result.stdout);
+      if (result.status === 0) return result.stdout.replace(/\n$/, "");
+      const detail = (result.stderr || result.stdout).trim();
+      if (NOT_FOUND.test(detail)) return void 0;
+      throw new Error(
+        `infisical secrets get failed for ${path}:${key} (${environment}): ${detail || "is the Infisical CLI installed and are you logged in? (`infisical login`)"}`
+      );
     }, this.retry);
   }
 };

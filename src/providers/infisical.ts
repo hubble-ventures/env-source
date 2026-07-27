@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { parseDotenv } from "../core/dotenv.js";
 import type { Provider } from "../core/types.js";
 import { type RetryOptions, withRetry } from "./retry.js";
 
@@ -8,8 +7,10 @@ const DEFAULT_API_URL = "https://app.infisical.com";
 // default; the caller (or the job timeout) handles a genuine outage.
 const REQUEST_TIMEOUT_MS = 30_000;
 
-type RawSecret = { secretKey: string; secretValue: string };
-type RawFolder = { secrets: RawSecret[]; imports?: { secrets?: RawSecret[] }[] };
+// Least privilege is the whole point: every read and peek fetches exactly the
+// keys the manifest declares, one request per key, and nothing else. We never
+// list or export a folder — an env-source consumer only ever pulls the keys and
+// values it explicitly named.
 
 // ---------------------------------------------------------------------------
 // CI lane — REST over GitHub OIDC
@@ -30,8 +31,8 @@ export type InfisicalApiOptions = {
  * {@link Provider} backed by the Infisical REST API, using the platform's native
  * `fetch`. This is the CI lane: authenticate with {@link loginWithOidc}, which
  * exchanges a GitHub OIDC JWT for a short-lived token — no long-lived credential
- * is stored. Reads expand secret references and include folder imports so the
- * result matches what the Infisical UI shows.
+ * is stored. Each key is fetched individually (with reference expansion) so only
+ * the declared secrets cross the wire.
  */
 export class InfisicalApiProvider implements Provider {
   readonly id = "infisical";
@@ -79,57 +80,86 @@ export class InfisicalApiProvider implements Provider {
     path: string,
     keys: string[]
   ): Promise<Record<string, string>> {
-    const wanted = new Set(keys);
-    const folder = await this.readFolder(environment, path);
     const out: Record<string, string> = {};
-    for (const [key, value] of Object.entries(folder)) {
-      if (wanted.has(key)) out[key] = value;
-    }
+    await Promise.all(
+      keys.map(async (key) => {
+        const value = await this.getSecret(environment, path, key);
+        if (value !== undefined) out[key] = value;
+      })
+    );
     return out;
   }
 
-  /**
-   * Assert which keys exist without surfacing values. Infisical's raw API returns
-   * values, so we read then discard them here — the value never leaves this method.
-   */
   async peek(
     environment: string,
     path: string,
     keys: string[]
   ): Promise<Set<string>> {
-    const present = new Set(Object.keys(await this.readFolder(environment, path)));
-    return new Set(keys.filter((k) => present.has(k)));
+    const present = new Set<string>();
+    await Promise.all(
+      keys.map(async (key) => {
+        // Existence only: we check the status and never parse the value body.
+        if (await this.hasSecret(environment, path, key)) present.add(key);
+      })
+    );
+    return present;
   }
 
-  private async readFolder(
+  /** Fetch one secret's value, or `undefined` when it does not exist (404). */
+  private getSecret(
     environment: string,
-    path: string
-  ): Promise<Record<string, string>> {
-    const url = new URL(`${this.baseUrl}/api/v3/secrets/raw`);
+    path: string,
+    key: string
+  ): Promise<string | undefined> {
+    return withRetry(async () => {
+      const res = await fetch(this.secretUrl(environment, path, key), {
+        headers: { authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (res.status === 404) return undefined;
+      if (!res.ok) {
+        throw new Error(
+          `Infisical read failed for ${path}:${key} (${res.status}): ${await res.text()}`
+        );
+      }
+      const data = (await res.json()) as { secret: { secretValue: string } };
+      return data.secret.secretValue;
+    }, this.retry);
+  }
+
+  /** Assert one secret exists without parsing its value. */
+  private hasSecret(
+    environment: string,
+    path: string,
+    key: string
+  ): Promise<boolean> {
+    return withRetry(async () => {
+      const res = await fetch(this.secretUrl(environment, path, key), {
+        headers: { authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (res.status === 404) return false;
+      if (!res.ok) {
+        throw new Error(
+          `Infisical peek failed for ${path}:${key} (${res.status}): ${await res.text()}`
+        );
+      }
+      return true;
+    }, this.retry);
+  }
+
+  private secretUrl(environment: string, path: string, key: string): URL {
+    const url = new URL(
+      `${this.baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`
+    );
     url.searchParams.set("workspaceSlug", this.project);
     url.searchParams.set("environment", environment);
     url.searchParams.set("secretPath", path);
-    // Match the values the UI resolves: pull in imported folders and expand
-    // `${REF}` secret references rather than returning them literally.
-    url.searchParams.set("include_imports", "true");
+    // Resolve `${REF}` references and follow imports server-side, but still fetch
+    // only this one declared key by name.
     url.searchParams.set("expandSecretReferences", "true");
-
-    const res = await withRetry(
-      () =>
-        fetchOk(url, {
-          headers: { authorization: `Bearer ${this.token}` },
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        }),
-      this.retry
-    );
-    const data = (await res.json()) as RawFolder;
-    const out: Record<string, string> = {};
-    // Imports first so a same-named key in this folder wins (Infisical's precedence).
-    for (const imp of data.imports ?? []) {
-      for (const s of imp.secrets ?? []) out[s.secretKey] = s.secretValue;
-    }
-    for (const s of data.secrets) out[s.secretKey] = s.secretValue;
-    return out;
+    url.searchParams.set("include_imports", "true");
+    return url;
   }
 }
 
@@ -149,6 +179,10 @@ const defaultSpawn: SpawnFn = (command, args) => {
   };
 };
 
+// Distinguish "this key isn't there" (fine — omit it) from a real failure such as
+// not being logged in or a network error (must surface, not be read as absent).
+const NOT_FOUND = /not found|does not exist|no secret|secret .* not found/i;
+
 export type InfisicalCliOptions = {
   /** Infisical project id (UUID) the CLI reads. */
   projectId: string;
@@ -160,9 +194,10 @@ export type InfisicalCliOptions = {
 
 /**
  * {@link Provider} backed by the Infisical CLI. This is the local lane: it shells
- * out to `infisical export`, which uses the developer's own authenticated session
- * (`infisical login`, stored in the OS keyring) — env-source never handles a
- * token. The CLI already expands references and includes imports.
+ * out to `infisical secrets get <KEY>`, which uses the developer's own
+ * authenticated session (`infisical login`, stored in the OS keyring) —
+ * env-source never handles a token. One invocation per declared key, so only the
+ * named secrets are ever requested.
  */
 export class InfisicalCliProvider implements Provider {
   readonly id = "infisical";
@@ -181,12 +216,13 @@ export class InfisicalCliProvider implements Provider {
     path: string,
     keys: string[]
   ): Promise<Record<string, string>> {
-    const wanted = new Set(keys);
-    const folder = await this.exportFolder(environment, path);
     const out: Record<string, string> = {};
-    for (const [key, value] of Object.entries(folder)) {
-      if (wanted.has(key)) out[key] = value;
-    }
+    await Promise.all(
+      keys.map(async (key) => {
+        const value = await this.getSecret(environment, path, key);
+        if (value !== undefined) out[key] = value;
+      })
+    );
     return out;
   }
 
@@ -195,30 +231,40 @@ export class InfisicalCliProvider implements Provider {
     path: string,
     keys: string[]
   ): Promise<Set<string>> {
-    const present = new Set(Object.keys(await this.exportFolder(environment, path)));
-    return new Set(keys.filter((k) => present.has(k)));
+    const present = new Set<string>();
+    await Promise.all(
+      keys.map(async (key) => {
+        if ((await this.getSecret(environment, path, key)) !== undefined) {
+          present.add(key);
+        }
+      })
+    );
+    return present;
   }
 
-  private exportFolder(
+  /** Read one secret via the CLI, or `undefined` when it does not exist. */
+  private getSecret(
     environment: string,
-    path: string
-  ): Promise<Record<string, string>> {
+    path: string,
+    key: string
+  ): Promise<string | undefined> {
     return withRetry(() => {
       const result = this.spawn("infisical", [
-        "export",
+        "secrets",
+        "get",
+        key,
         `--projectId=${this.projectId}`,
         `--env=${environment}`,
         `--path=${path}`,
-        "--format=dotenv",
+        "--plain",
         "--silent",
       ]);
-      if (result.status !== 0) {
-        const detail = (result.stderr || result.stdout).trim();
-        throw new Error(
-          `infisical export failed for ${path} (${environment}): ${detail || "is the Infisical CLI installed and are you logged in? (`infisical login`)"}`
-        );
-      }
-      return parseDotenv(result.stdout);
+      if (result.status === 0) return result.stdout.replace(/\n$/, "");
+      const detail = (result.stderr || result.stdout).trim();
+      if (NOT_FOUND.test(detail)) return undefined; // absent — not an error
+      throw new Error(
+        `infisical secrets get failed for ${path}:${key} (${environment}): ${detail || "is the Infisical CLI installed and are you logged in? (`infisical login`)"}`
+      );
     }, this.retry);
   }
 }

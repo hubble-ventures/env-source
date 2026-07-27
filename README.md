@@ -170,6 +170,11 @@ A provider defines three capabilities the core orchestrates over:
 | **read**   | Resolve values for the declared keys at a container path. |
 | **peek**   | Assert a key *exists* without surfacing its value (used by `validate`). |
 
+**Least privilege by construction.** A provider only ever requests the keys a
+manifest explicitly declares — one request per key, no folder listing or export.
+Nothing you didn't name crosses the wire, and `peek` asserts existence by status
+alone, never reading the value.
+
 Infisical ships in the box. The `Provider` interface (`src/core/types.ts`) is the
 extension point for 1Password, the process environment, and password managers.
 
