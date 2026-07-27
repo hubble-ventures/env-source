@@ -1,0 +1,77 @@
+name: env-source
+description: >-
+  Populate the job environment from .env.source manifests via orchestrated
+  providers (Infisical). Authentication is GitHub OIDC — the calling job MUST set
+  `permissions: id-token: write` for commands that read a provider.
+
+inputs:
+  command:
+    description: 'What to do: pull | validate | diff'
+    required: false
+    default: 'pull'
+  environment:
+    description: 'Environment to resolve (e.g. development, preview, production)'
+    required: false
+    default: ''
+  profile:
+    description: 'Manifest profile — loads .env.<profile>.source where present'
+    required: false
+    default: ''
+  ids:
+    description: 'Restrict to these manifest ids (space/comma separated). Default: all discovered.'
+    required: false
+    default: ''
+  working-directory:
+    description: 'Directory to run in (where env-source.toml is discoverable)'
+    required: false
+    default: ''
+  identity-id:
+    description: 'Infisical machine-identity id bound to a GitHub OIDC auth method'
+    required: false
+    default: ''
+  oidc-audience:
+    description: 'OIDC audience the identity expects (overrides env-source.toml)'
+    required: false
+    default: ''
+  against-providers:
+    description: 'validate only: also peek the live provider to confirm keys exist'
+    required: false
+    default: 'false'
+  check-values:
+    description: 'validate only: also flag present-but-empty required values'
+    required: false
+    default: 'false'
+  base:
+    description: 'diff only: git ref to compare against (e.g. the PR base branch)'
+    required: false
+    default: ''
+  comment:
+    description: 'diff only: upsert a sticky PR comment with the delta (needs pull-requests: write)'
+    required: false
+    default: 'false'
+  fail-on-change:
+    description: 'diff only: fail the step when the manifest surface changed'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'diff only: token used to post the PR comment (usually ${{ github.token }})'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  count:
+    description: 'pull: total variables exported to the job environment'
+  manifests:
+    description: 'total manifests processed'
+  changed:
+    description: 'diff: whether any manifest changed'
+  added:
+    description: 'diff: total added variables'
+  removed:
+    description: 'diff: total removed variables'
+  changed-count:
+    description: 'diff: total variables whose source changed'
+
+runs:
+  using: node20
+  main: index.cjs

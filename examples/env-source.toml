@@ -1,0 +1,19 @@
+# env-source.toml — root, non-secret provider context for the workspace.
+# Discovered by walking up from the directory a command runs in. Credentials are
+# NEVER stored here; they come from the environment at resolve time.
+#
+# $schema = "./node_modules/@hubble-ventures/env-source/schema/env-source.config.schema.json"
+
+default_environment = "development"
+output = ".env"
+
+[providers.infisical]
+# Project slug — used by the REST/OIDC lane in CI.
+project = "acme-payments"
+# Project id (UUID) — used by the local Infisical CLI lane. Falls back to the
+# $INFISICAL_PROJECT_ID env var, then to `project`.
+# project_id = "00000000-0000-0000-0000-000000000000"
+# API base URL (omit for the Infisical cloud). Env INFISICAL_API_URL wins.
+# api_url = "https://app.infisical.com"
+# OIDC audience the CI machine identity expects (optional).
+oidc_audience = "https://github.com/hubble-ventures"

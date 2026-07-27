@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/hubble-ventures/env-source/schema/env-source.config.schema.json",
+  "title": "env-source.toml",
+  "description": "Root, non-secret provider context for an env-source workspace.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "default_environment": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Environment used when a command doesn't name one. Default 'development'."
+    },
+    "output": {
+      "type": "string",
+      "pattern": "^[^/\\\\]+$",
+      "description": "Output filename written next to each .env.source. Default '.env'."
+    },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "infisical": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["project"],
+          "properties": {
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Infisical project slug — used by the REST/OIDC lane in CI."
+            },
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Infisical project id (UUID) — used by the local CLI lane. Falls back to $INFISICAL_PROJECT_ID, then project."
+            },
+            "api_url": {
+              "type": "string",
+              "format": "uri",
+              "description": "API base URL. Defaults to the Infisical cloud."
+            },
+            "oidc_audience": {
+              "type": "string",
+              "description": "OIDC audience the CI machine identity expects."
+            }
+          }
+        }
+      }
+    }
+  }
+}

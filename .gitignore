@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# action/index.cjs is intentionally committed: it's the self-contained bundle
+# `uses: hubble-ventures/env-source@v1` runs with no install step. CI checks it
+# stays in sync with src (rebuild with `npm run build` after changing src/).
+coverage/
+.env
+.env.*
+!.env.source

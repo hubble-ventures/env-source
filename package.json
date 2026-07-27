@@ -1,0 +1,70 @@
+{
+  "name": "@hubble-ventures/env-source",
+  "version": "0.2.0",
+  "description": "Populate .env files from orchestrated secret providers, driven by decorated .env.source manifests — one format for local dev and CI.",
+  "keywords": [
+    "env",
+    "dotenv",
+    "secrets",
+    "infisical",
+    "monorepo",
+    "github-actions",
+    "ci",
+    "1password"
+  ],
+  "license": "MIT",
+  "author": "Hubble Ventures",
+  "homepage": "https://github.com/hubble-ventures/env-source#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hubble-ventures/env-source.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hubble-ventures/env-source/issues"
+  },
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "env-source": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./schema": "./schema/env-source.config.schema.json"
+  },
+  "files": [
+    "dist",
+    "schema",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit",
+    "release": "npm version --no-git-tag-version",
+    "version": "npm run build"
+  },
+  "dependencies": {
+    "smol-toml": "^1.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
