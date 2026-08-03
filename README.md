@@ -201,10 +201,24 @@ A provider defines three capabilities the core orchestrates over:
 | **read**   | Resolve values for the declared keys at a container path. |
 | **peek**   | Assert a key *exists* without surfacing its value (used by `validate`). |
 
-**Least privilege by construction.** A provider only ever requests the keys a
-manifest explicitly declares — one request per key, no folder listing or export.
-Nothing you didn't name crosses the wire, and `peek` asserts existence by status
-alone, never reading the value.
+**Least privilege, as far as the lane allows.** Nothing you didn't declare is
+ever written to a `.env` — a provider returns the declared keys and drops the
+rest. How little crosses the wire depends on what the backend actually offers:
+
+- **Infisical over REST (CI).** `/secrets/raw/{key}` is a genuine single-secret
+  endpoint, so each declared key is fetched by name, one request per key, and
+  nothing else leaves the vault. `peek` asserts existence from the response
+  status without reading the value.
+- **Infisical over the CLI (local).** `infisical secrets get <KEY>` resolves
+  server-side to `GET /secrets/raw?secretPath=P` — the *folder* endpoint, with no
+  key filter — and filters client-side. The whole folder crosses the wire
+  whichever way you ask, so asking per key buys no privacy and multiplies the
+  requests by the number of declared keys (74 keys once cost 74 full-folder
+  reads and a `429`). This lane therefore reads each folder once via
+  `infisical export`, memoised per environment and path, and selects the declared
+  keys from it — strictly less data over the wire than per-key. The trade is that
+  the folder's other values pass through memory for the life of the command, and
+  `peek` here is membership in that folder rather than a value-free status check.
 
 Infisical ships in the box. The `Provider` interface (`src/core/types.ts`) is the
 extension point for 1Password, the process environment, and password managers.

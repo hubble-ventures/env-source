@@ -18,6 +18,26 @@ const CONFIG_FILE = "env-source.toml";
 const MANIFEST_FILE = ".env.source";
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".turbo", "coverage"]);
 
+/**
+ * Whether `dir` is the root of a *different* checkout — a linked git worktree, a
+ * submodule, or a nested clone — and so not part of this workspace.
+ *
+ * Tools that place worktrees inside the repo (Claude Code defaults to
+ * `.claude/worktrees/<name>`) otherwise get every manifest discovered once per
+ * worktree: 11 real manifests became 134, and a pull fanned out to ~910 vault
+ * reads and wrote `.env.secrets` into checkouts on unrelated branches.
+ *
+ * The test is the presence of a `.git` entry, which for a linked worktree or a
+ * submodule is a *file* (a gitdir pointer) rather than a directory. Checking for
+ * the entry either way costs one `existsSync` per directory and is right no
+ * matter how the path came to be ignored — notably, matching `.gitignore` would
+ * not have caught the case above, where `.claude/worktrees/` was ignored through
+ * `.git/info/exclude`.
+ */
+function isNestedCheckout(dir: string): boolean {
+  return existsSync(join(dir, ".git"));
+}
+
 /** A discovered `.env.source` manifest and where it lives. */
 export type ManifestFile = {
   /** Stable id derived from the containing directory (repo-relative, or `root`). */
@@ -101,16 +121,59 @@ export function resolvedManifestPath(
     : file.path;
 }
 
-/** Restrict discovered manifests to the requested ids (all when `ids` is empty). */
+/**
+ * Restrict discovered manifests to the requested ids (all when `ids` is empty).
+ *
+ * An id is either a full manifest id (`infra/postgres`) or, as a shorthand, the
+ * name of its leaf directory (`postgres`). The shorthand must identify exactly
+ * one manifest: matching it against every same-named directory made `pull` write
+ * secrets to paths the caller never named. When it is ambiguous we fail and ask
+ * for the full id rather than guessing, or worse, pulling all of them.
+ *
+ * An id that matches nothing is an error for the same reason, from the other
+ * side: a typo would otherwise select no manifests and report "none found",
+ * which reads as "there is nothing to pull" rather than "you asked for something
+ * that isn't here".
+ */
 export function selectManifests(
   files: ManifestFile[],
   ids: string[]
 ): ManifestFile[] {
   if (ids.length === 0) return files;
-  const wanted = new Set(ids);
-  return files.filter(
-    (f) => wanted.has(f.id) || wanted.has(basename(f.dir))
-  );
+
+  const selected = new Map<string, ManifestFile>();
+  for (const id of ids) {
+    const exact = files.find((f) => f.id === id);
+    if (exact) {
+      selected.set(exact.id, exact);
+      continue;
+    }
+    const byName = files.filter((f) => basename(f.dir) === id);
+    if (byName.length === 0) {
+      throw new Error(
+        `'${id}' matches no manifest. Discovered: ${describeIds(files)}`
+      );
+    }
+    if (byName.length > 1) {
+      throw new Error(
+        `'${id}' is ambiguous — it matches ${byName.length} manifests: ${byName
+          .map((f) => f.id)
+          .join(", ")}. Use the full id.`
+      );
+    }
+    for (const match of byName) selected.set(match.id, match);
+  }
+  // Preserve discovery order rather than the order the ids were given.
+  return files.filter((f) => selected.has(f.id));
+}
+
+/** Discovered ids for an error message, truncated so it stays readable. */
+function describeIds(files: ManifestFile[]): string {
+  if (files.length === 0) return "no manifests at all";
+  const shown = files.slice(0, 10).map((f) => f.id);
+  return files.length > shown.length
+    ? `${shown.join(", ")}, … (${files.length} total)`
+    : shown.join(", ");
 }
 
 /**
@@ -209,6 +272,9 @@ function walk(dir: string, onFile: (path: string) => void): void {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
+      // Never descend into another checkout. The workspace root itself is not
+      // subject to this — `walk` is only ever called on directories below it.
+      if (isNestedCheckout(full)) continue;
       walk(full, onFile);
     } else if (entry.isFile()) {
       onFile(full);

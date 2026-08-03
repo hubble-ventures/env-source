@@ -96,46 +96,106 @@ describe("InfisicalApiProvider (CI / OIDC lane)", () => {
 });
 
 describe("InfisicalCliProvider (local lane)", () => {
-  // A spawn that resolves a fixed set of key→value, 404-style for the rest.
+  // A spawn that exports a fixed folder, in the shape `infisical export
+  // --format=json` returns: an array of records carrying `key` and `value`.
   const vaultSpawn =
     (vault: Record<string, string>): SpawnFn =>
-    (_cmd, args) => {
-      const key = args[2] as string; // secrets get <KEY> ...
-      if (Object.hasOwn(vault, key))
-        return { status: 0, stdout: `${vault[key]}\n`, stderr: "" };
-      return { status: 1, stdout: "", stderr: `secret ${key} not found` };
-    };
+    () => ({
+      status: 0,
+      stdout: JSON.stringify(
+        Object.entries(vault).map(([key, value]) => ({
+          key,
+          value,
+          secretPath: "/shared",
+          type: "shared",
+        }))
+      ),
+      stderr: "",
+    });
 
-  it("reads one declared key per invocation via `secrets get --plain`", async () => {
+  it("reads a folder in one invocation and returns only the declared keys", async () => {
     const calls: string[][] = [];
     const spawn: SpawnFn = (cmd, args) => {
       calls.push([cmd, ...args]);
-      return vaultSpawn({ A: "1", B: "2" })(cmd, args);
+      return vaultSpawn({ A: "1", B: "2", UNDECLARED: "3" })(cmd, args);
     };
     const provider = new InfisicalCliProvider({ projectId: "pid", spawn });
     expect(await provider.read("development", "/shared", ["A", "MISSING"])).toEqual({
-      A: "1", // MISSING omitted (not found)
+      A: "1", // MISSING omitted (absent); UNDECLARED never returned
     });
-    expect(calls).toHaveLength(2); // one call per declared key
+    expect(calls).toHaveLength(1); // one call for the folder, not one per key
     expect(calls[0]).toEqual([
       "infisical",
-      "secrets",
-      "get",
-      "A",
+      "export",
+      "--format=json",
       "--projectId=pid",
       "--env=development",
       "--path=/shared",
-      "--plain",
+      "--expand=true",
+      "--include-imports=true",
       "--silent",
     ]);
   });
 
-  it("peeks per key from exit status", async () => {
+  it("does not re-request a folder it has already read", async () => {
+    let calls = 0;
+    const spawn: SpawnFn = (cmd, args) => {
+      calls++;
+      return vaultSpawn({ A: "1", B: "2" })(cmd, args);
+    };
+    const provider = new InfisicalCliProvider({ projectId: "pid", spawn });
+    const [values, present] = await Promise.all([
+      provider.read("development", "/shared", ["A"]),
+      provider.peek("development", "/shared", ["B"]),
+    ]);
+    expect(values).toEqual({ A: "1" });
+    expect([...present]).toEqual(["B"]);
+    expect(calls).toBe(1); // concurrent callers collapse onto one request
+  });
+
+  it("requests each distinct folder and environment separately", async () => {
+    const paths: string[] = [];
+    const spawn: SpawnFn = (cmd, args) => {
+      paths.push(args.find((a) => a.startsWith("--path=")) as string);
+      return vaultSpawn({ A: "1" })(cmd, args);
+    };
+    const provider = new InfisicalCliProvider({ projectId: "pid", spawn });
+    await provider.read("development", "/one", ["A"]);
+    await provider.read("development", "/two", ["A"]);
+    await provider.read("production", "/one", ["A"]);
+    expect(paths).toEqual(["--path=/one", "--path=/two", "--path=/one"]);
+  });
+
+  it("peeks from folder membership", async () => {
     const provider = new InfisicalCliProvider({
       projectId: "pid",
       spawn: vaultSpawn({ A: "1" }),
     });
     expect([...(await provider.peek("development", "/x", ["A", "C"]))]).toEqual(["A"]);
+  });
+
+  it("reads an empty folder as absent keys", async () => {
+    // `infisical export` formats an empty folder as `[]` (the CLI initialises
+    // the slice), so this must parse rather than trip the not-an-array guard.
+    const provider = new InfisicalCliProvider({
+      projectId: "pid",
+      spawn: () => ({ status: 0, stdout: "[]", stderr: "" }),
+    });
+    expect(await provider.read("development", "/empty", ["A"])).toEqual({});
+  });
+
+  it("treats an absent folder as absent keys, not an error", async () => {
+    const spawn: SpawnFn = () => ({
+      status: 1,
+      stdout: "",
+      stderr: "folder does not exist",
+    });
+    const provider = new InfisicalCliProvider({
+      projectId: "pid",
+      spawn,
+      retry: { attempts: 1, baseMs: 0 },
+    });
+    expect(await provider.read("development", "/gone", ["A"])).toEqual({});
   });
 
   it("surfaces a real error (e.g. not logged in) rather than treating it as absent", async () => {
@@ -150,8 +210,44 @@ describe("InfisicalCliProvider (local lane)", () => {
       retry: { attempts: 2, baseMs: 0 },
     });
     await expect(provider.read("development", "/x", ["A"])).rejects.toThrow(
-      /infisical secrets get failed/
+      /infisical export failed/
     );
+  });
+
+  it("does not cache a failed folder read", async () => {
+    let calls = 0;
+    const spawn: SpawnFn = (cmd, args) => {
+      calls++;
+      if (calls === 1) return { status: 1, stdout: "", stderr: "network is down" };
+      return vaultSpawn({ A: "1" })(cmd, args);
+    };
+    const provider = new InfisicalCliProvider({
+      projectId: "pid",
+      spawn,
+      retry: { attempts: 1, baseMs: 0 },
+    });
+    await expect(provider.read("development", "/x", ["A"])).rejects.toThrow(
+      /infisical export failed/
+    );
+    // The failure is not replayed from cache: a later read tries again.
+    expect(await provider.read("development", "/x", ["A"])).toEqual({ A: "1" });
+  });
+
+  it("retries malformed output rather than reading it as an empty folder", async () => {
+    let calls = 0;
+    const spawn: SpawnFn = (cmd, args) => {
+      calls++;
+      // Truncated stdout first, then a good response.
+      if (calls === 1) return { status: 0, stdout: '[{"key":"A","val', stderr: "" };
+      return vaultSpawn({ A: "1" })(cmd, args);
+    };
+    const provider = new InfisicalCliProvider({
+      projectId: "pid",
+      spawn,
+      retry: { attempts: 2, baseMs: 0 },
+    });
+    expect(await provider.read("development", "/x", ["A"])).toEqual({ A: "1" });
+    expect(calls).toBe(2);
   });
 
   it("detects CLI availability from --version exit status", () => {
