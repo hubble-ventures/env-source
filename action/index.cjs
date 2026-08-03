@@ -5024,6 +5024,11 @@ function selectManifests(files, ids) {
       continue;
     }
     const byName = files.filter((f) => (0, import_node_path.basename)(f.dir) === id);
+    if (byName.length === 0) {
+      throw new Error(
+        `'${id}' matches no manifest. Discovered: ${describeIds(files)}`
+      );
+    }
     if (byName.length > 1) {
       throw new Error(
         `'${id}' is ambiguous \u2014 it matches ${byName.length} manifests: ${byName.map((f) => f.id).join(", ")}. Use the full id.`
@@ -5032,6 +5037,11 @@ function selectManifests(files, ids) {
     for (const match of byName) selected.set(match.id, match);
   }
   return files.filter((f) => selected.has(f.id));
+}
+function describeIds(files) {
+  if (files.length === 0) return "no manifests at all";
+  const shown = files.slice(0, 10).map((f) => f.id);
+  return files.length > shown.length ? `${shown.join(", ")}, \u2026 (${files.length} total)` : shown.join(", ");
 }
 function resolveRef(ref, cwd) {
   try {
@@ -5506,8 +5516,12 @@ var InfisicalApiProvider = class _InfisicalApiProvider {
     return url;
   }
 };
+var SPAWN_MAX_BUFFER = 64 * 1024 * 1024;
 var defaultSpawn = (command, args) => {
-  const r = (0, import_node_child_process2.spawnSync)(command, args, { encoding: "utf8" });
+  const r = (0, import_node_child_process2.spawnSync)(command, args, {
+    encoding: "utf8",
+    maxBuffer: SPAWN_MAX_BUFFER
+  });
   return {
     status: r.status,
     stdout: r.stdout ?? "",
@@ -5549,7 +5563,10 @@ var InfisicalCliProvider = class {
     const cacheKey3 = `${environment}\0${path}`;
     const cached = this.folders.get(cacheKey3);
     if (cached) return cached;
-    const pending = this.exportFolder(environment, path);
+    const pending = this.exportFolder(environment, path).catch((error) => {
+      this.folders.delete(cacheKey3);
+      throw error;
+    });
     this.folders.set(cacheKey3, pending);
     return pending;
   }
@@ -5774,29 +5791,68 @@ async function validateAll(options) {
   const checkValues = options.checkValues ?? false;
   const useProviders = options.againstProviders || checkValues;
   const knownProviders = configProviderIds(loaded.config);
-  const results = [];
-  for (const file of files) {
+  const entries = files.map((file) => {
     try {
-      const manifest = compile(
-        loadManifest(file, options.profile, knownProviders),
-        loaded.config,
-        {
-          ...options.environment ? { environment: options.environment } : {}
-        }
-      );
-      let providers;
-      if (useProviders) {
-        const ids = manifest.bindings.flatMap(
-          (b) => b.sources.map((s) => s.provider)
-        );
-        providers = await resolveProviders(ids, loaded.config, ctx);
-      }
-      results.push({
+      return {
         file,
-        issues: await validate(manifest, providers, { checkValues })
+        manifest: compile(
+          loadManifest(file, options.profile, knownProviders),
+          loaded.config,
+          {
+            ...options.environment ? { environment: options.environment } : {}
+          }
+        )
+      };
+    } catch (error) {
+      return { file, issues: toIssues(error) };
+    }
+  });
+  const providers = /* @__PURE__ */ new Map();
+  const providerErrors = /* @__PURE__ */ new Map();
+  if (useProviders) {
+    const ids = new Set(
+      entries.flatMap(
+        (entry) => "manifest" in entry ? entry.manifest.bindings.flatMap(
+          (b) => b.sources.map((s) => s.provider)
+        ) : []
+      )
+    );
+    for (const id of ids) {
+      try {
+        for (const [key, provider] of await resolveProviders(
+          [id],
+          loaded.config,
+          ctx
+        )) {
+          providers.set(key, provider);
+        }
+      } catch (error) {
+        providerErrors.set(id, error);
+      }
+    }
+  }
+  const results = [];
+  for (const entry of entries) {
+    if (!("manifest" in entry)) {
+      results.push({ file: entry.file, issues: entry.issues });
+      continue;
+    }
+    const failed = entry.manifest.bindings.flatMap((b) => b.sources.map((s) => s.provider)).find((id) => providerErrors.has(id));
+    if (failed !== void 0) {
+      results.push({ file: entry.file, issues: toIssues(providerErrors.get(failed)) });
+      continue;
+    }
+    try {
+      results.push({
+        file: entry.file,
+        issues: await validate(
+          entry.manifest,
+          useProviders ? providers : void 0,
+          { checkValues }
+        )
       });
     } catch (error) {
-      results.push({ file, issues: toIssues(error) });
+      results.push({ file: entry.file, issues: toIssues(error) });
     }
   }
   return results;
