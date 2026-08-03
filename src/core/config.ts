@@ -27,6 +27,24 @@ const infisicalConfigSchema = z
 
 export type InfisicalConfig = z.infer<typeof infisicalConfigSchema>;
 
+/** Provider block for 1Password. */
+const onepasswordConfigSchema = z
+  .object({
+    /**
+     * Account to sign in to for the local (desktop app) lane, e.g.
+     * `acme.1password.com`. Falls back to the env var `OP_ACCOUNT`. Unused in
+     * CI, where `OP_SERVICE_ACCOUNT_TOKEN` selects the service-account lane.
+     */
+    account: z.string().min(1).optional(),
+    /** Vault used when a manifest path names only an item (`/stripe`). */
+    vault: z.string().min(1).optional(),
+    /** Per-environment vault override, keyed by environment name. */
+    vaults: z.record(z.string().min(1)).optional(),
+  })
+  .strict();
+
+export type OnePasswordConfig = z.infer<typeof onepasswordConfigSchema>;
+
 export const configSchema = z
   .object({
     $schema: z.string().optional(),
@@ -37,6 +55,7 @@ export const configSchema = z
     providers: z
       .object({
         infisical: infisicalConfigSchema.optional(),
+        onepassword: onepasswordConfigSchema.optional(),
       })
       // Allow unknown provider blocks so a manifest can reference a provider this
       // version doesn't yet type without failing the whole config load.

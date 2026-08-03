@@ -7,7 +7,9 @@ import { defineConfig } from "tsup";
 //     Type declarations are emitted separately by `tsc -p tsconfig.build.json`.
 //  2. The GitHub Action — a single self-contained CommonJS file committed to the
 //     repo so `uses: hubble-ventures/env-source@v1` runs with no install step.
-//     Everything is bundled in (noExternal).
+//     Everything is bundled in (noExternal) except `@1password/sdk`, an optional
+//     peer dependency the 1Password adapter imports at runtime; a job using that
+//     provider installs it itself.
 export default defineConfig([
   {
     entry: { index: "src/index.ts", cli: "src/cli.ts" },
@@ -26,6 +28,7 @@ export default defineConfig([
     outDir: "action",
     outExtension: () => ({ js: ".cjs" }),
     noExternal: [/.*/],
+    external: ["@1password/sdk"],
     dts: false,
     sourcemap: false,
     clean: false,

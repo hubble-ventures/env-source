@@ -5,9 +5,9 @@ Populate `.env` files from **orchestrated secret providers**, driven by decorate
 
 You declare *where each variable comes from* right next to the variable, in a file
 that reads like a `.env`. `env-source` discovers those manifests across a
-monorepo, resolves each variable through the right provider (Infisical today; the
-provider layer is pluggable), and writes a plain `.env` next to each manifest —
-or, in CI, loads the values straight into the job environment.
+monorepo, resolves each variable through the right provider (Infisical and
+1Password today; the provider layer is pluggable), and writes a plain `.env` next
+to each manifest — or, in CI, loads the values straight into the job environment.
 
 ```
 .env.source            ← the manifest: variables + where they come from (committed)
@@ -109,6 +109,12 @@ output = ".env"
 project = "acme-payments"                          # project slug — CI (REST/OIDC) lane
 # project_id = "…uuid…"                             # project id — local CLI lane (or $INFISICAL_PROJECT_ID)
 oidc_audience = "https://github.com/your-org"      # CI OIDC audience (optional)
+
+[providers.onepassword]
+account = "acme.1password.com"                     # local desktop-app lane (or $OP_ACCOUNT)
+vault = "Engineering"                              # used when a path names only an item
+[providers.onepassword.vaults]                     # optional per-environment override
+production = "Production"
 ```
 
 ## CLI
@@ -197,7 +203,7 @@ A provider defines three capabilities the core orchestrates over:
 
 | Capability | Purpose |
 | ---------- | ------- |
-| **auth**   | Establish access (Infisical: local CLI session, or GitHub OIDC in CI). |
+| **auth**   | Establish access (a local session — CLI or desktop app — or a CI credential). |
 | **read**   | Resolve values for the declared keys at a container path. |
 | **peek**   | Assert a key *exists* without surfacing its value (used by `validate`). |
 
@@ -219,9 +225,61 @@ rest. How little crosses the wire depends on what the backend actually offers:
   keys from it — strictly less data over the wire than per-key. The trade is that
   the folder's other values pass through memory for the life of the command, and
   `peek` here is membership in that folder rather than a value-free status check.
+- **1Password over the SDK.** `items.get` returns a whole item whichever way you
+  ask — there is no single-field endpoint — so each declared item is read once,
+  memoised per environment and path, and the declared field names are selected
+  from it. Reading per key would cost one request per key and buy no privacy.
+  That matters more here than elsewhere: 1Password meters *per request*, and the
+  per-account daily ceiling is 1,000 reads/24h on Individual, Families and Teams
+  plans (50,000 on Business). For the same reason a rate-limited read is not
+  retried: repeating a request the vault refused for exceeding a *per-request*
+  quota only spends more of a budget that is already gone, and the backoff is far
+  shorter than the reset window. Name → id lookups use the overview endpoints,
+  which never return field values. As with the Infisical CLI lane, the item's other
+  fields pass through memory for the life of the command, and `peek` is
+  membership in the fetched item rather than a value-free status check.
 
-Infisical ships in the box. The `Provider` interface (`src/core/types.ts`) is the
-extension point for 1Password, the process environment, and password managers.
+### 1Password
+
+Paths address an item, optionally qualified by vault and section. `{env}` is
+replaced with the environment being resolved, and the declared keys are field
+names inside the item:
+
+```dotenv
+# onepassword
+#     /Engineering/stripe-{env}       ← vault / item
+STRIPE_SECRET_KEY=
+#     /Engineering/stripe/webhooks    ← vault / item / section
+SIGNING_SECRET=
+#     /stripe                         ← item in the configured vault
+API_KEY=
+```
+
+Without a section segment every field in the item is eligible and the first
+occurrence of a name wins; add the section when two sections share a field name.
+A path segment may be a 26-character 1Password id instead of a name; titles are
+matched first, so a vault or item genuinely *named* like an id still resolves to
+itself.
+
+Auth has two lanes, both through the SDK:
+- **local** — the 1Password desktop app, using your own unlocked session
+  (biometric or password approval). env-source never handles a token. The client
+  is built on the first read, so `list` and `diff` never prompt.
+- **CI** — a service account token in `OP_SERVICE_ACCOUNT_TOKEN`.
+
+Two caveats worth stating plainly. Unlike the Infisical lane, **CI here holds a
+long-lived credential** — 1Password's workload-identity (OIDC) auth is in public
+preview and not wired up yet; `ResolveContext.getOidcJwt` is where it will go.
+And the SDK is an **optional peer dependency**, so a workspace that uses this
+provider installs it itself:
+
+```bash
+npm install @1password/sdk
+```
+
+Infisical and 1Password ship in the box. The `Provider` interface
+(`src/core/types.ts`) is the extension point for the process environment,
+password managers, and anything else.
 
 ## Library
 

@@ -9,6 +9,15 @@ export {
   type InfisicalApiOptions,
   type InfisicalCliOptions,
 } from "./providers/infisical.js";
+export {
+  OnePasswordProvider,
+  type OnePasswordAuth,
+  type OnePasswordClient,
+  type OnePasswordClientFactory,
+  type OnePasswordItem,
+  type OnePasswordItemField,
+  type OnePasswordOptions,
+} from "./providers/onepassword.js";
 export { withRetry, type RetryOptions } from "./providers/retry.js";
 export {
   resolveProviders,
