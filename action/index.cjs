@@ -93,7 +93,7 @@ var import_node_crypto = require("crypto");
 var import_node_fs = require("fs");
 var import_node_path = require("path");
 
-// node_modules/smol-toml/dist/date.js
+// ../../../node_modules/smol-toml/dist/date.js
 var DATE_TIME_RE = /^(\d{4}-\d{2}-\d{2})?[T ]?(?:(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?)?(Z|[-+]\d{2}:\d{2})?$/i;
 var TomlDate = class _TomlDate extends Date {
   #hasDate = false;
@@ -185,7 +185,7 @@ var TomlDate = class _TomlDate extends Date {
   }
 };
 
-// node_modules/smol-toml/dist/error.js
+// ../../../node_modules/smol-toml/dist/error.js
 function getLineColFromPtr(string, ptr) {
   let lines = string.slice(0, ptr).split(/\r\n|\n|\r/g);
   return [lines.length, lines.pop().length + 1];
@@ -213,10 +213,10 @@ var TomlError = class extends Error {
   line;
   column;
   codeblock;
-  constructor(message, options) {
+  constructor(message2, options) {
     const [line, column] = getLineColFromPtr(options.toml, options.ptr);
     const codeblock = makeCodeBlock(options.toml, line, column);
-    super(`Invalid TOML document: ${message}
+    super(`Invalid TOML document: ${message2}
 
 ${codeblock}`, options);
     this.line = line;
@@ -225,7 +225,7 @@ ${codeblock}`, options);
   }
 };
 
-// node_modules/smol-toml/dist/primitive.js
+// ../../../node_modules/smol-toml/dist/primitive.js
 var INT_REGEX = /^((0x[0-9a-fA-F](_?[0-9a-fA-F])*)|(([+-]|0[ob])?\d(_?\d)*))$/;
 var FLOAT_REGEX = /^[+-]?\d(_?\d)*(\.\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?$/;
 var LEADING_ZERO = /^[+-]?0[0-9_]/;
@@ -384,7 +384,7 @@ function parseValue(value, toml, ptr, integersAsBigInt) {
   return date;
 }
 
-// node_modules/smol-toml/dist/util.js
+// ../../../node_modules/smol-toml/dist/util.js
 function indexOfNewline(str, start = 0, end = str.length) {
   let idx = str.indexOf("\n", start);
   if (str[idx - 1] === "\r")
@@ -441,7 +441,7 @@ function skipUntil(str, ptr, sep2, end, banNewLines = false) {
   });
 }
 
-// node_modules/smol-toml/dist/extract.js
+// ../../../node_modules/smol-toml/dist/extract.js
 function sliceAndTrimEndOf(str, startPtr, endPtr) {
   let value = str.slice(startPtr, endPtr);
   let commentIdx = value.indexOf("#");
@@ -508,7 +508,7 @@ function extractValue(str, ptr, end, depth, integersAsBigInt) {
   ];
 }
 
-// node_modules/smol-toml/dist/struct.js
+// ../../../node_modules/smol-toml/dist/struct.js
 var KEY_PART_RE = /^[a-zA-Z0-9-_]+[ \t]*$/;
 function parseKey(str, ptr, end = "=") {
   let dot = ptr - 1;
@@ -650,7 +650,7 @@ function parseArray(str, ptr, depth, integersAsBigInt) {
   return [res, ptr];
 }
 
-// node_modules/smol-toml/dist/parse.js
+// ../../../node_modules/smol-toml/dist/parse.js
 function peekTable(key, table, meta, type) {
   let t = table;
   let m = meta;
@@ -775,7 +775,7 @@ function parse(toml, { maxDepth = 1e3, integersAsBigInt } = {}) {
   return res;
 }
 
-// node_modules/zod/v3/external.js
+// ../../../node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
   BRAND: () => BRAND,
@@ -887,7 +887,7 @@ __export(external_exports, {
   void: () => voidType
 });
 
-// node_modules/zod/v3/helpers/util.js
+// ../../../node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -1021,7 +1021,7 @@ var getParsedType = (data) => {
   }
 };
 
-// node_modules/zod/v3/ZodError.js
+// ../../../node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -1139,110 +1139,110 @@ ZodError.create = (issues) => {
   return error;
 };
 
-// node_modules/zod/v3/locales/en.js
+// ../../../node_modules/zod/v3/locales/en.js
 var errorMap = (issue, _ctx) => {
-  let message;
+  let message2;
   switch (issue.code) {
     case ZodIssueCode.invalid_type:
       if (issue.received === ZodParsedType.undefined) {
-        message = "Required";
+        message2 = "Required";
       } else {
-        message = `Expected ${issue.expected}, received ${issue.received}`;
+        message2 = `Expected ${issue.expected}, received ${issue.received}`;
       }
       break;
     case ZodIssueCode.invalid_literal:
-      message = `Invalid literal value, expected ${JSON.stringify(issue.expected, util.jsonStringifyReplacer)}`;
+      message2 = `Invalid literal value, expected ${JSON.stringify(issue.expected, util.jsonStringifyReplacer)}`;
       break;
     case ZodIssueCode.unrecognized_keys:
-      message = `Unrecognized key(s) in object: ${util.joinValues(issue.keys, ", ")}`;
+      message2 = `Unrecognized key(s) in object: ${util.joinValues(issue.keys, ", ")}`;
       break;
     case ZodIssueCode.invalid_union:
-      message = `Invalid input`;
+      message2 = `Invalid input`;
       break;
     case ZodIssueCode.invalid_union_discriminator:
-      message = `Invalid discriminator value. Expected ${util.joinValues(issue.options)}`;
+      message2 = `Invalid discriminator value. Expected ${util.joinValues(issue.options)}`;
       break;
     case ZodIssueCode.invalid_enum_value:
-      message = `Invalid enum value. Expected ${util.joinValues(issue.options)}, received '${issue.received}'`;
+      message2 = `Invalid enum value. Expected ${util.joinValues(issue.options)}, received '${issue.received}'`;
       break;
     case ZodIssueCode.invalid_arguments:
-      message = `Invalid function arguments`;
+      message2 = `Invalid function arguments`;
       break;
     case ZodIssueCode.invalid_return_type:
-      message = `Invalid function return type`;
+      message2 = `Invalid function return type`;
       break;
     case ZodIssueCode.invalid_date:
-      message = `Invalid date`;
+      message2 = `Invalid date`;
       break;
     case ZodIssueCode.invalid_string:
       if (typeof issue.validation === "object") {
         if ("includes" in issue.validation) {
-          message = `Invalid input: must include "${issue.validation.includes}"`;
+          message2 = `Invalid input: must include "${issue.validation.includes}"`;
           if (typeof issue.validation.position === "number") {
-            message = `${message} at one or more positions greater than or equal to ${issue.validation.position}`;
+            message2 = `${message2} at one or more positions greater than or equal to ${issue.validation.position}`;
           }
         } else if ("startsWith" in issue.validation) {
-          message = `Invalid input: must start with "${issue.validation.startsWith}"`;
+          message2 = `Invalid input: must start with "${issue.validation.startsWith}"`;
         } else if ("endsWith" in issue.validation) {
-          message = `Invalid input: must end with "${issue.validation.endsWith}"`;
+          message2 = `Invalid input: must end with "${issue.validation.endsWith}"`;
         } else {
           util.assertNever(issue.validation);
         }
       } else if (issue.validation !== "regex") {
-        message = `Invalid ${issue.validation}`;
+        message2 = `Invalid ${issue.validation}`;
       } else {
-        message = "Invalid";
+        message2 = "Invalid";
       }
       break;
     case ZodIssueCode.too_small:
       if (issue.type === "array")
-        message = `Array must contain ${issue.exact ? "exactly" : issue.inclusive ? `at least` : `more than`} ${issue.minimum} element(s)`;
+        message2 = `Array must contain ${issue.exact ? "exactly" : issue.inclusive ? `at least` : `more than`} ${issue.minimum} element(s)`;
       else if (issue.type === "string")
-        message = `String must contain ${issue.exact ? "exactly" : issue.inclusive ? `at least` : `over`} ${issue.minimum} character(s)`;
+        message2 = `String must contain ${issue.exact ? "exactly" : issue.inclusive ? `at least` : `over`} ${issue.minimum} character(s)`;
       else if (issue.type === "number")
-        message = `Number must be ${issue.exact ? `exactly equal to ` : issue.inclusive ? `greater than or equal to ` : `greater than `}${issue.minimum}`;
+        message2 = `Number must be ${issue.exact ? `exactly equal to ` : issue.inclusive ? `greater than or equal to ` : `greater than `}${issue.minimum}`;
       else if (issue.type === "bigint")
-        message = `Number must be ${issue.exact ? `exactly equal to ` : issue.inclusive ? `greater than or equal to ` : `greater than `}${issue.minimum}`;
+        message2 = `Number must be ${issue.exact ? `exactly equal to ` : issue.inclusive ? `greater than or equal to ` : `greater than `}${issue.minimum}`;
       else if (issue.type === "date")
-        message = `Date must be ${issue.exact ? `exactly equal to ` : issue.inclusive ? `greater than or equal to ` : `greater than `}${new Date(Number(issue.minimum))}`;
+        message2 = `Date must be ${issue.exact ? `exactly equal to ` : issue.inclusive ? `greater than or equal to ` : `greater than `}${new Date(Number(issue.minimum))}`;
       else
-        message = "Invalid input";
+        message2 = "Invalid input";
       break;
     case ZodIssueCode.too_big:
       if (issue.type === "array")
-        message = `Array must contain ${issue.exact ? `exactly` : issue.inclusive ? `at most` : `less than`} ${issue.maximum} element(s)`;
+        message2 = `Array must contain ${issue.exact ? `exactly` : issue.inclusive ? `at most` : `less than`} ${issue.maximum} element(s)`;
       else if (issue.type === "string")
-        message = `String must contain ${issue.exact ? `exactly` : issue.inclusive ? `at most` : `under`} ${issue.maximum} character(s)`;
+        message2 = `String must contain ${issue.exact ? `exactly` : issue.inclusive ? `at most` : `under`} ${issue.maximum} character(s)`;
       else if (issue.type === "number")
-        message = `Number must be ${issue.exact ? `exactly` : issue.inclusive ? `less than or equal to` : `less than`} ${issue.maximum}`;
+        message2 = `Number must be ${issue.exact ? `exactly` : issue.inclusive ? `less than or equal to` : `less than`} ${issue.maximum}`;
       else if (issue.type === "bigint")
-        message = `BigInt must be ${issue.exact ? `exactly` : issue.inclusive ? `less than or equal to` : `less than`} ${issue.maximum}`;
+        message2 = `BigInt must be ${issue.exact ? `exactly` : issue.inclusive ? `less than or equal to` : `less than`} ${issue.maximum}`;
       else if (issue.type === "date")
-        message = `Date must be ${issue.exact ? `exactly` : issue.inclusive ? `smaller than or equal to` : `smaller than`} ${new Date(Number(issue.maximum))}`;
+        message2 = `Date must be ${issue.exact ? `exactly` : issue.inclusive ? `smaller than or equal to` : `smaller than`} ${new Date(Number(issue.maximum))}`;
       else
-        message = "Invalid input";
+        message2 = "Invalid input";
       break;
     case ZodIssueCode.custom:
-      message = `Invalid input`;
+      message2 = `Invalid input`;
       break;
     case ZodIssueCode.invalid_intersection_types:
-      message = `Intersection results could not be merged`;
+      message2 = `Intersection results could not be merged`;
       break;
     case ZodIssueCode.not_multiple_of:
-      message = `Number must be a multiple of ${issue.multipleOf}`;
+      message2 = `Number must be a multiple of ${issue.multipleOf}`;
       break;
     case ZodIssueCode.not_finite:
-      message = "Number must be finite";
+      message2 = "Number must be finite";
       break;
     default:
-      message = _ctx.defaultError;
+      message2 = _ctx.defaultError;
       util.assertNever(issue);
   }
-  return { message };
+  return { message: message2 };
 };
 var en_default = errorMap;
 
-// node_modules/zod/v3/errors.js
+// ../../../node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function setErrorMap(map) {
   overrideErrorMap = map;
@@ -1251,7 +1251,7 @@ function getErrorMap() {
   return overrideErrorMap;
 }
 
-// node_modules/zod/v3/helpers/parseUtil.js
+// ../../../node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -1361,14 +1361,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// node_modules/zod/v3/helpers/errorUtil.js
+// ../../../node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
-  errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
-  errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
+  errorUtil2.errToObj = (message2) => typeof message2 === "string" ? { message: message2 } : message2 || {};
+  errorUtil2.toString = (message2) => typeof message2 === "string" ? message2 : message2?.message;
 })(errorUtil || (errorUtil = {}));
 
-// node_modules/zod/v3/types.js
+// ../../../node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path, key) {
     this._cachedPath = [];
@@ -1417,16 +1417,16 @@ function processCreateParams(params) {
   if (errorMap2)
     return { errorMap: errorMap2, description };
   const customMap = (iss, ctx) => {
-    const { message } = params;
+    const { message: message2 } = params;
     if (iss.code === "invalid_enum_value") {
-      return { message: message ?? ctx.defaultError };
+      return { message: message2 ?? ctx.defaultError };
     }
     if (typeof ctx.data === "undefined") {
-      return { message: message ?? required_error ?? ctx.defaultError };
+      return { message: message2 ?? required_error ?? ctx.defaultError };
     }
     if (iss.code !== "invalid_type")
       return { message: ctx.defaultError };
-    return { message: message ?? invalid_type_error ?? ctx.defaultError };
+    return { message: message2 ?? invalid_type_error ?? ctx.defaultError };
   };
   return { errorMap: customMap, description };
 }
@@ -1552,14 +1552,14 @@ var ZodType = class {
     const result = await (isAsync(maybeAsyncResult) ? maybeAsyncResult : Promise.resolve(maybeAsyncResult));
     return handleResult(ctx, result);
   }
-  refine(check, message) {
+  refine(check, message2) {
     const getIssueProperties = (val) => {
-      if (typeof message === "string" || typeof message === "undefined") {
-        return { message };
-      } else if (typeof message === "function") {
-        return message(val);
+      if (typeof message2 === "string" || typeof message2 === "undefined") {
+        return { message: message2 };
+      } else if (typeof message2 === "function") {
+        return message2(val);
       } else {
-        return message;
+        return message2;
       }
     };
     return this._refinement((val, ctx) => {
@@ -2095,11 +2095,11 @@ var ZodString = class _ZodString extends ZodType {
     }
     return { status: status.value, value: input2.data };
   }
-  _regex(regex, validation, message) {
+  _regex(regex, validation, message2) {
     return this.refinement((data) => regex.test(data), {
       validation,
       code: ZodIssueCode.invalid_string,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   _addCheck(check) {
@@ -2108,37 +2108,37 @@ var ZodString = class _ZodString extends ZodType {
       checks: [...this._def.checks, check]
     });
   }
-  email(message) {
-    return this._addCheck({ kind: "email", ...errorUtil.errToObj(message) });
+  email(message2) {
+    return this._addCheck({ kind: "email", ...errorUtil.errToObj(message2) });
   }
-  url(message) {
-    return this._addCheck({ kind: "url", ...errorUtil.errToObj(message) });
+  url(message2) {
+    return this._addCheck({ kind: "url", ...errorUtil.errToObj(message2) });
   }
-  emoji(message) {
-    return this._addCheck({ kind: "emoji", ...errorUtil.errToObj(message) });
+  emoji(message2) {
+    return this._addCheck({ kind: "emoji", ...errorUtil.errToObj(message2) });
   }
-  uuid(message) {
-    return this._addCheck({ kind: "uuid", ...errorUtil.errToObj(message) });
+  uuid(message2) {
+    return this._addCheck({ kind: "uuid", ...errorUtil.errToObj(message2) });
   }
-  nanoid(message) {
-    return this._addCheck({ kind: "nanoid", ...errorUtil.errToObj(message) });
+  nanoid(message2) {
+    return this._addCheck({ kind: "nanoid", ...errorUtil.errToObj(message2) });
   }
-  cuid(message) {
-    return this._addCheck({ kind: "cuid", ...errorUtil.errToObj(message) });
+  cuid(message2) {
+    return this._addCheck({ kind: "cuid", ...errorUtil.errToObj(message2) });
   }
-  cuid2(message) {
-    return this._addCheck({ kind: "cuid2", ...errorUtil.errToObj(message) });
+  cuid2(message2) {
+    return this._addCheck({ kind: "cuid2", ...errorUtil.errToObj(message2) });
   }
-  ulid(message) {
-    return this._addCheck({ kind: "ulid", ...errorUtil.errToObj(message) });
+  ulid(message2) {
+    return this._addCheck({ kind: "ulid", ...errorUtil.errToObj(message2) });
   }
-  base64(message) {
-    return this._addCheck({ kind: "base64", ...errorUtil.errToObj(message) });
+  base64(message2) {
+    return this._addCheck({ kind: "base64", ...errorUtil.errToObj(message2) });
   }
-  base64url(message) {
+  base64url(message2) {
     return this._addCheck({
       kind: "base64url",
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   jwt(options) {
@@ -2168,8 +2168,8 @@ var ZodString = class _ZodString extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  date(message) {
-    return this._addCheck({ kind: "date", message });
+  date(message2) {
+    return this._addCheck({ kind: "date", message: message2 });
   }
   time(options) {
     if (typeof options === "string") {
@@ -2185,14 +2185,14 @@ var ZodString = class _ZodString extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  duration(message) {
-    return this._addCheck({ kind: "duration", ...errorUtil.errToObj(message) });
+  duration(message2) {
+    return this._addCheck({ kind: "duration", ...errorUtil.errToObj(message2) });
   }
-  regex(regex, message) {
+  regex(regex, message2) {
     return this._addCheck({
       kind: "regex",
       regex,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   includes(value, options) {
@@ -2203,46 +2203,46 @@ var ZodString = class _ZodString extends ZodType {
       ...errorUtil.errToObj(options?.message)
     });
   }
-  startsWith(value, message) {
+  startsWith(value, message2) {
     return this._addCheck({
       kind: "startsWith",
       value,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  endsWith(value, message) {
+  endsWith(value, message2) {
     return this._addCheck({
       kind: "endsWith",
       value,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  min(minLength, message) {
+  min(minLength, message2) {
     return this._addCheck({
       kind: "min",
       value: minLength,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  max(maxLength, message) {
+  max(maxLength, message2) {
     return this._addCheck({
       kind: "max",
       value: maxLength,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
-  length(len, message) {
+  length(len, message2) {
     return this._addCheck({
       kind: "length",
       value: len,
-      ...errorUtil.errToObj(message)
+      ...errorUtil.errToObj(message2)
     });
   }
   /**
    * Equivalent to `.min(1)`
    */
-  nonempty(message) {
-    return this.min(1, errorUtil.errToObj(message));
+  nonempty(message2) {
+    return this.min(1, errorUtil.errToObj(message2));
   }
   trim() {
     return new _ZodString({
@@ -2435,19 +2435,19 @@ var ZodNumber = class _ZodNumber extends ZodType {
     }
     return { status: status.value, value: input2.data };
   }
-  gte(value, message) {
-    return this.setLimit("min", value, true, errorUtil.toString(message));
+  gte(value, message2) {
+    return this.setLimit("min", value, true, errorUtil.toString(message2));
   }
-  gt(value, message) {
-    return this.setLimit("min", value, false, errorUtil.toString(message));
+  gt(value, message2) {
+    return this.setLimit("min", value, false, errorUtil.toString(message2));
   }
-  lte(value, message) {
-    return this.setLimit("max", value, true, errorUtil.toString(message));
+  lte(value, message2) {
+    return this.setLimit("max", value, true, errorUtil.toString(message2));
   }
-  lt(value, message) {
-    return this.setLimit("max", value, false, errorUtil.toString(message));
+  lt(value, message2) {
+    return this.setLimit("max", value, false, errorUtil.toString(message2));
   }
-  setLimit(kind, value, inclusive, message) {
+  setLimit(kind, value, inclusive, message2) {
     return new _ZodNumber({
       ...this._def,
       checks: [
@@ -2456,7 +2456,7 @@ var ZodNumber = class _ZodNumber extends ZodType {
           kind,
           value,
           inclusive,
-          message: errorUtil.toString(message)
+          message: errorUtil.toString(message2)
         }
       ]
     });
@@ -2467,68 +2467,68 @@ var ZodNumber = class _ZodNumber extends ZodType {
       checks: [...this._def.checks, check]
     });
   }
-  int(message) {
+  int(message2) {
     return this._addCheck({
       kind: "int",
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  positive(message) {
+  positive(message2) {
     return this._addCheck({
       kind: "min",
       value: 0,
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  negative(message) {
+  negative(message2) {
     return this._addCheck({
       kind: "max",
       value: 0,
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonpositive(message) {
+  nonpositive(message2) {
     return this._addCheck({
       kind: "max",
       value: 0,
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonnegative(message) {
+  nonnegative(message2) {
     return this._addCheck({
       kind: "min",
       value: 0,
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  multipleOf(value, message) {
+  multipleOf(value, message2) {
     return this._addCheck({
       kind: "multipleOf",
       value,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  finite(message) {
+  finite(message2) {
     return this._addCheck({
       kind: "finite",
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  safe(message) {
+  safe(message2) {
     return this._addCheck({
       kind: "min",
       inclusive: true,
       value: Number.MIN_SAFE_INTEGER,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     })._addCheck({
       kind: "max",
       inclusive: true,
       value: Number.MAX_SAFE_INTEGER,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minValue() {
@@ -2651,19 +2651,19 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
     });
     return INVALID;
   }
-  gte(value, message) {
-    return this.setLimit("min", value, true, errorUtil.toString(message));
+  gte(value, message2) {
+    return this.setLimit("min", value, true, errorUtil.toString(message2));
   }
-  gt(value, message) {
-    return this.setLimit("min", value, false, errorUtil.toString(message));
+  gt(value, message2) {
+    return this.setLimit("min", value, false, errorUtil.toString(message2));
   }
-  lte(value, message) {
-    return this.setLimit("max", value, true, errorUtil.toString(message));
+  lte(value, message2) {
+    return this.setLimit("max", value, true, errorUtil.toString(message2));
   }
-  lt(value, message) {
-    return this.setLimit("max", value, false, errorUtil.toString(message));
+  lt(value, message2) {
+    return this.setLimit("max", value, false, errorUtil.toString(message2));
   }
-  setLimit(kind, value, inclusive, message) {
+  setLimit(kind, value, inclusive, message2) {
     return new _ZodBigInt({
       ...this._def,
       checks: [
@@ -2672,7 +2672,7 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
           kind,
           value,
           inclusive,
-          message: errorUtil.toString(message)
+          message: errorUtil.toString(message2)
         }
       ]
     });
@@ -2683,43 +2683,43 @@ var ZodBigInt = class _ZodBigInt extends ZodType {
       checks: [...this._def.checks, check]
     });
   }
-  positive(message) {
+  positive(message2) {
     return this._addCheck({
       kind: "min",
       value: BigInt(0),
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  negative(message) {
+  negative(message2) {
     return this._addCheck({
       kind: "max",
       value: BigInt(0),
       inclusive: false,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonpositive(message) {
+  nonpositive(message2) {
     return this._addCheck({
       kind: "max",
       value: BigInt(0),
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  nonnegative(message) {
+  nonnegative(message2) {
     return this._addCheck({
       kind: "min",
       value: BigInt(0),
       inclusive: true,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  multipleOf(value, message) {
+  multipleOf(value, message2) {
     return this._addCheck({
       kind: "multipleOf",
       value,
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minValue() {
@@ -2842,18 +2842,18 @@ var ZodDate = class _ZodDate extends ZodType {
       checks: [...this._def.checks, check]
     });
   }
-  min(minDate, message) {
+  min(minDate, message2) {
     return this._addCheck({
       kind: "min",
       value: minDate.getTime(),
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
-  max(maxDate, message) {
+  max(maxDate, message2) {
     return this._addCheck({
       kind: "max",
       value: maxDate.getTime(),
-      message: errorUtil.toString(message)
+      message: errorUtil.toString(message2)
     });
   }
   get minDate() {
@@ -3085,26 +3085,26 @@ var ZodArray = class _ZodArray extends ZodType {
   get element() {
     return this._def.type;
   }
-  min(minLength, message) {
+  min(minLength, message2) {
     return new _ZodArray({
       ...this._def,
-      minLength: { value: minLength, message: errorUtil.toString(message) }
+      minLength: { value: minLength, message: errorUtil.toString(message2) }
     });
   }
-  max(maxLength, message) {
+  max(maxLength, message2) {
     return new _ZodArray({
       ...this._def,
-      maxLength: { value: maxLength, message: errorUtil.toString(message) }
+      maxLength: { value: maxLength, message: errorUtil.toString(message2) }
     });
   }
-  length(len, message) {
+  length(len, message2) {
     return new _ZodArray({
       ...this._def,
-      exactLength: { value: len, message: errorUtil.toString(message) }
+      exactLength: { value: len, message: errorUtil.toString(message2) }
     });
   }
-  nonempty(message) {
-    return this.min(1, message);
+  nonempty(message2) {
+    return this.min(1, message2);
   }
 };
 ZodArray.create = (schema, params) => {
@@ -3247,17 +3247,17 @@ var ZodObject = class _ZodObject extends ZodType {
   get shape() {
     return this._def.shape();
   }
-  strict(message) {
+  strict(message2) {
     errorUtil.errToObj;
     return new _ZodObject({
       ...this._def,
       unknownKeys: "strict",
-      ...message !== void 0 ? {
+      ...message2 !== void 0 ? {
         errorMap: (issue, ctx) => {
           const defaultError = this._def.errorMap?.(issue, ctx).message ?? ctx.defaultError;
           if (issue.code === "unrecognized_keys")
             return {
-              message: errorUtil.errToObj(message).message ?? defaultError
+              message: errorUtil.errToObj(message2).message ?? defaultError
             };
           return {
             message: defaultError
@@ -4013,23 +4013,23 @@ var ZodSet = class _ZodSet extends ZodType {
       return finalizeSet(elements);
     }
   }
-  min(minSize, message) {
+  min(minSize, message2) {
     return new _ZodSet({
       ...this._def,
-      minSize: { value: minSize, message: errorUtil.toString(message) }
+      minSize: { value: minSize, message: errorUtil.toString(message2) }
     });
   }
-  max(maxSize, message) {
+  max(maxSize, message2) {
     return new _ZodSet({
       ...this._def,
-      maxSize: { value: maxSize, message: errorUtil.toString(message) }
+      maxSize: { value: maxSize, message: errorUtil.toString(message2) }
     });
   }
-  size(size, message) {
-    return this.min(size, message).max(size, message);
+  size(size, message2) {
+    return this.min(size, message2).max(size, message2);
   }
-  nonempty(message) {
-    return this.min(1, message);
+  nonempty(message2) {
+    return this.min(1, message2);
   }
 };
 ZodSet.create = (valueType, params) => {
@@ -4831,6 +4831,18 @@ var infisicalConfigSchema = external_exports.object({
   /** OIDC audience the CI machine identity expects. */
   oidc_audience: external_exports.string().optional()
 }).strict();
+var onepasswordConfigSchema = external_exports.object({
+  /**
+   * Account to sign in to for the local (desktop app) lane, e.g.
+   * `acme.1password.com`. Falls back to the env var `OP_ACCOUNT`. Unused in
+   * CI, where `OP_SERVICE_ACCOUNT_TOKEN` selects the service-account lane.
+   */
+  account: external_exports.string().min(1).optional(),
+  /** Vault used when a manifest path names only an item (`/stripe`). */
+  vault: external_exports.string().min(1).optional(),
+  /** Per-environment vault override, keyed by environment name. */
+  vaults: external_exports.record(external_exports.string().min(1)).optional()
+}).strict();
 var configSchema = external_exports.object({
   $schema: external_exports.string().optional(),
   /** Environment used when a command doesn't name one. Default `development`. */
@@ -4838,7 +4850,8 @@ var configSchema = external_exports.object({
   /** Output filename written next to each `.env.source`. Default `.env`. */
   output: outputName.optional(),
   providers: external_exports.object({
-    infisical: infisicalConfigSchema.optional()
+    infisical: infisicalConfigSchema.optional(),
+    onepassword: onepasswordConfigSchema.optional()
   }).passthrough().optional()
 }).strict();
 var DEFAULT_ENVIRONMENT = "development";
@@ -5623,6 +5636,207 @@ async function fetchOk(input2, init) {
   return res;
 }
 
+// src/providers/onepassword.ts
+var SDK_MODULE = "@1password/sdk";
+var INTEGRATION_NAME = "env-source";
+var INTEGRATION_VERSION = "v1.0.0";
+var OP_ID = /^[a-z0-9]{26}$/;
+var NOT_FOUND2 = /not found|no item|doesn't exist|does not exist|isn't a vault/i;
+var OnePasswordProvider = class {
+  id = "onepassword";
+  options;
+  retry;
+  makeClient;
+  /** The authenticated client, built once on first use. */
+  clientPromise;
+  /**
+   * In-flight and completed item reads, keyed by environment + path. `validate`
+   * peeks and pulls the same item, and manifests routinely share one; caching
+   * the promise (not just the result) also collapses concurrent callers into a
+   * single request.
+   */
+  items = /* @__PURE__ */ new Map();
+  /** Vault name → id, resolved once per provider (cleared to retry a failure). */
+  vaultIds;
+  /** Item name → id, resolved once per vault id. */
+  itemIds = /* @__PURE__ */ new Map();
+  constructor(options = {}) {
+    this.options = options;
+    this.retry = options.retry ?? {};
+    this.makeClient = options.client ?? (() => createSdkClient(requireAuth(options.auth)));
+  }
+  async read(environment, path, keys) {
+    const item = await this.readItem(environment, path);
+    const out = {};
+    for (const key of keys) {
+      if (Object.hasOwn(item, key)) out[key] = item[key];
+    }
+    return out;
+  }
+  async peek(environment, path, keys) {
+    const item = await this.readItem(environment, path);
+    return new Set(keys.filter((key) => Object.hasOwn(item, key)));
+  }
+  client() {
+    this.clientPromise ??= this.makeClient();
+    return this.clientPromise;
+  }
+  /** Every readable field in one item, read once per (environment, path). */
+  readItem(environment, path) {
+    const cacheKey3 = `${environment}\0${path}`;
+    const cached = this.items.get(cacheKey3);
+    if (cached) return cached;
+    const pending = this.fetchItem(environment, path).catch((error) => {
+      this.items.delete(cacheKey3);
+      throw error;
+    });
+    this.items.set(cacheKey3, pending);
+    return pending;
+  }
+  async fetchItem(environment, path) {
+    const location = this.parsePath(environment, path);
+    const vaultId = await this.resolveVaultId(location.vault);
+    if (vaultId === void 0) return {};
+    const itemId = await this.resolveItemId(vaultId, location.item);
+    if (itemId === void 0) return {};
+    const client = await this.client();
+    const item = await withRetry(async () => {
+      try {
+        return await client.items.get(vaultId, itemId);
+      } catch (error) {
+        if (NOT_FOUND2.test(message(error))) return void 0;
+        throw new Error(
+          `1Password read failed for ${path} (${environment}): ${message(error)}`
+        );
+      }
+    }, this.retry);
+    if (!item) return {};
+    return selectFields(item, location.section);
+  }
+  /**
+   * Split a manifest path into vault / item / section, substituting `{env}`.
+   * One segment names an item in the configured vault; two name vault + item;
+   * three add a section.
+   */
+  parsePath(environment, path) {
+    const segments = path.replace(/\{env\}/g, environment).split("/").map((s) => s.trim()).filter((s) => s !== "");
+    if (segments.length === 0 || segments.length > 3) {
+      throw new Error(
+        `1Password path '${path}' is not '/vault/item', '/vault/item/section', or '/item' (with a configured vault)`
+      );
+    }
+    if (segments.length === 1) {
+      const vault2 = this.configuredVault(environment);
+      if (!vault2) {
+        throw new Error(
+          `1Password path '${path}' names only an item, but no vault is configured for environment '${environment}' \u2014 set 'vault' (or a 'vaults' entry) under [providers.onepassword], or write '/vault/item'`
+        );
+      }
+      return { vault: vault2, item: segments[0] };
+    }
+    const [vault, item, section] = segments;
+    return { vault, item, ...section ? { section } : {} };
+  }
+  /** Per-environment vault override, else the single configured default. */
+  configuredVault(environment) {
+    return this.options.vaults?.[environment] ?? this.options.vault;
+  }
+  async resolveVaultId(name) {
+    if (OP_ID.test(name)) return name;
+    this.vaultIds ??= this.loadVaultIds();
+    try {
+      return (await this.vaultIds).get(name);
+    } catch (error) {
+      this.vaultIds = void 0;
+      throw error;
+    }
+  }
+  async loadVaultIds() {
+    const client = await this.client();
+    return withRetry(async () => {
+      const vaults = await collect(client.vaults.list());
+      return byTitle(vaults);
+    }, this.retry);
+  }
+  async resolveItemId(vaultId, name) {
+    if (OP_ID.test(name)) return name;
+    let pending = this.itemIds.get(vaultId);
+    if (!pending) {
+      pending = this.loadItemIds(vaultId).catch((error) => {
+        this.itemIds.delete(vaultId);
+        throw error;
+      });
+      this.itemIds.set(vaultId, pending);
+    }
+    return (await pending).get(name);
+  }
+  async loadItemIds(vaultId) {
+    const client = await this.client();
+    return withRetry(async () => {
+      const overviews = await collect(client.items.list(vaultId));
+      return byTitle(overviews);
+    }, this.retry);
+  }
+};
+function selectFields(item, section) {
+  let sectionId;
+  if (section !== void 0) {
+    sectionId = (item.sections ?? []).find((s) => s.title === section)?.id;
+    if (sectionId === void 0) return {};
+  }
+  const out = {};
+  for (const field of item.fields ?? []) {
+    if (sectionId !== void 0 && field.sectionId !== sectionId) continue;
+    if (typeof field.value !== "string") continue;
+    if (!Object.hasOwn(out, field.title)) out[field.title] = field.value;
+  }
+  return out;
+}
+function requireAuth(auth) {
+  if (auth) return auth;
+  throw new Error(
+    "No 1Password credentials. Set OP_SERVICE_ACCOUNT_TOKEN (CI), or set 'account' under [providers.onepassword] (or $OP_ACCOUNT) to use the desktop app locally."
+  );
+}
+async function createSdkClient(auth) {
+  let sdk;
+  try {
+    sdk = await import(SDK_MODULE);
+  } catch {
+    throw new Error(
+      "The 'onepassword' provider needs the 1Password SDK, which is an optional peer dependency. Install it with `npm install @1password/sdk`."
+    );
+  }
+  const credential = auth.kind === "service-account" ? auth.token : new sdk.DesktopAuth(auth.account);
+  return sdk.createClient({
+    auth: credential,
+    integrationName: INTEGRATION_NAME,
+    integrationVersion: INTEGRATION_VERSION
+  });
+}
+async function collect(source) {
+  const resolved = await source;
+  const out = [];
+  if (resolved != null && typeof resolved[Symbol.asyncIterator] === "function") {
+    for await (const value of resolved) out.push(value);
+    return out;
+  }
+  for (const value of resolved ?? []) {
+    out.push(value);
+  }
+  return out;
+}
+function byTitle(overviews) {
+  const map = /* @__PURE__ */ new Map();
+  for (const { id, title } of overviews) {
+    if (!map.has(title)) map.set(title, id);
+  }
+  return map;
+}
+function message(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // src/providers/registry.ts
 async function resolveProviders(providerIds, config, ctx) {
   const map = /* @__PURE__ */ new Map();
@@ -5635,6 +5849,8 @@ async function buildProvider(id, config, ctx) {
   switch (id) {
     case "infisical":
       return buildInfisical(config, ctx);
+    case "onepassword":
+      return buildOnePassword(config, ctx);
     default:
       throw new Error(
         `Unknown provider '${id}' \u2014 no adapter is registered for it`
@@ -5668,6 +5884,23 @@ async function buildInfisical(config, ctx) {
   }
   const projectId = cfg.project_id ?? env.INFISICAL_PROJECT_ID ?? cfg.project;
   return new InfisicalCliProvider({ projectId });
+}
+function buildOnePassword(config, ctx) {
+  const cfg = config.providers?.onepassword;
+  if (!cfg) {
+    throw new Error(
+      "Manifest references the 'onepassword' provider but env-source.toml has no [providers.onepassword] block"
+    );
+  }
+  const { env } = ctx;
+  const token = env.OP_SERVICE_ACCOUNT_TOKEN;
+  const account = cfg.account ?? env.OP_ACCOUNT;
+  const auth = token ? { kind: "service-account", token } : account ? { kind: "desktop", account } : void 0;
+  return new OnePasswordProvider({
+    ...auth ? { auth } : {},
+    ...cfg.vault ? { vault: cfg.vault } : {},
+    ...cfg.vaults ? { vaults: cfg.vaults } : {}
+  });
 }
 
 // src/commands/pull.ts
@@ -5976,8 +6209,8 @@ ${sections.join("\n")}` : "## env-source manifest diff\n\n_No manifest changes._
   );
 }
 run().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.log(`::error::${message}`);
+  const message2 = error instanceof Error ? error.message : String(error);
+  console.log(`::error::${message2}`);
   process.exitCode = 1;
 });
 /*! Bundled license information:

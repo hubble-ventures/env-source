@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **1Password is now a provider.** Declare `# onepassword` in a manifest and a
+  `[providers.onepassword]` block in `env-source.toml`. Paths address an item
+  (`/Engineering/stripe-{env}`, optionally `/vault/item/section`, or `/item` with
+  a configured vault), `{env}` expands to the environment being resolved, and the
+  declared keys are field names within the item.
+
+  Reads go through the official SDK (`@1password/sdk`) rather than the `op` CLI —
+  no binary on `PATH`, and one adapter covers both lanes: the desktop app locally
+  (the client is built on first read, so `list` and `diff` never prompt) and a
+  service account token (`OP_SERVICE_ACCOUNT_TOKEN`) in CI. Each item is read
+  once and memoised per environment and path, for the same reason the Infisical
+  CLI lane reads per folder: 1Password meters per request, and the per-account
+  ceiling is 1,000 reads/24h outside Business plans.
+
+  Two limits are worth knowing. The SDK is an **optional peer dependency** —
+  `npm install @1password/sdk` in a workspace that uses this provider, including
+  the GitHub Action, which does not bundle it. And **CI holds a long-lived
+  credential**: 1Password's workload-identity (OIDC) auth is in public preview
+  and not wired up, so there is no equivalent of the Infisical OIDC lane yet.
+
 ## 0.4.0
 
 A pull in a monorepo that keeps worktrees inside itself issued ~910 Infisical

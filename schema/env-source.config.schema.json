@@ -45,6 +45,27 @@
               "description": "OIDC audience the CI machine identity expects."
             }
           }
+        },
+        "onepassword": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "account": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Account signed in to for the local desktop-app lane, e.g. 'acme.1password.com'. Falls back to $OP_ACCOUNT."
+            },
+            "vault": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Vault used when a manifest path names only an item ('/stripe')."
+            },
+            "vaults": {
+              "type": "object",
+              "description": "Per-environment vault override, keyed by environment name.",
+              "additionalProperties": { "type": "string", "minLength": 1 }
+            }
+          }
         }
       }
     }

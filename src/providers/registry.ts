@@ -5,6 +5,7 @@ import {
   InfisicalCliProvider,
   infisicalCliAvailable,
 } from "./infisical.js";
+import { type OnePasswordAuth, OnePasswordProvider } from "./onepassword.js";
 
 /** Ambient inputs a provider needs to authenticate — credentials, OIDC. */
 export type ResolveContext = {
@@ -27,6 +28,10 @@ export type ResolveContext = {
  *    short-lived REST token.
  *  - **local** — the Infisical CLI, using the developer's own `infisical login`
  *    session. env-source never sees a token.
+ *
+ * 1Password likewise has two, both through the SDK:
+ *  - **CI** — a service account token (`OP_SERVICE_ACCOUNT_TOKEN`).
+ *  - **local** — the desktop app, using the developer's own unlocked session.
  */
 export async function resolveProviders(
   providerIds: Iterable<string>,
@@ -48,6 +53,8 @@ async function buildProvider(
   switch (id) {
     case "infisical":
       return buildInfisical(config, ctx);
+    case "onepassword":
+      return buildOnePassword(config, ctx);
     default:
       throw new Error(
         `Unknown provider '${id}' — no adapter is registered for it`
@@ -89,4 +96,35 @@ async function buildInfisical(
   }
   const projectId = cfg.project_id ?? env.INFISICAL_PROJECT_ID ?? cfg.project;
   return new InfisicalCliProvider({ projectId });
+}
+
+function buildOnePassword(
+  config: EnvSourceConfig,
+  ctx: ResolveContext
+): Provider {
+  const cfg = config.providers?.onepassword;
+  if (!cfg) {
+    throw new Error(
+      "Manifest references the 'onepassword' provider but env-source.toml has no [providers.onepassword] block"
+    );
+  }
+  const { env } = ctx;
+
+  // A service account token means CI; otherwise fall back to the developer's
+  // own desktop app session. The client is built lazily on the first read, so an
+  // unusable lane only fails when a value is actually needed — and picking the
+  // lane here never triggers a biometric prompt.
+  const token = env.OP_SERVICE_ACCOUNT_TOKEN;
+  const account = cfg.account ?? env.OP_ACCOUNT;
+  const auth: OnePasswordAuth | undefined = token
+    ? { kind: "service-account", token }
+    : account
+      ? { kind: "desktop", account }
+      : undefined;
+
+  return new OnePasswordProvider({
+    ...(auth ? { auth } : {}),
+    ...(cfg.vault ? { vault: cfg.vault } : {}),
+    ...(cfg.vaults ? { vaults: cfg.vaults } : {}),
+  });
 }
