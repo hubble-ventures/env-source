@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0
+
+A pull in a monorepo that keeps worktrees inside itself issued ~910 Infisical
+requests to resolve 74 declared keys, tripped `429 Too Many Requests`, and wrote
+`.env.secrets` into eleven checkouts on unrelated branches. Three defects
+compounded; all three are fixed, and the two selection changes are visible enough
+to call out.
+
+- **Discovery stops at another checkout.** Any directory holding a `.git` entry
+  — a linked worktree, a submodule, a nested clone — is no longer descended
+  into. Manifests inside a submodule are no longer discovered by the parent
+  workspace; pull them from the submodule's own workspace instead.
+- **A manifest id must identify exactly one manifest.** The leaf-name shorthand
+  (`postgres` for `infra/postgres`) previously matched every same-named
+  directory, so `pull scripts` wrote secrets to eleven paths nobody named. An
+  exact id always wins; an ambiguous shorthand now fails and asks for the full
+  id, and an id that matches nothing fails instead of quietly selecting none.
+- **The Infisical CLI lane reads a folder once, not once per key.** `infisical
+  secrets get <KEY>` resolves server-side to the *folder* endpoint and filters
+  client-side, so asking per key downloaded the whole folder once per key. Each
+  folder is now read once with `infisical export` — memoised per environment and
+  path — and the declared keys selected from it: strictly less data over the
+  wire, and identical results. Only declared keys are ever returned, an absent
+  key stays absent, and malformed CLI output is retried rather than read as an
+  empty folder. **The REST/OIDC lane is unchanged** — `/secrets/raw/{key}` is a
+  genuine single-secret endpoint, so its per-key reads really are least
+  privilege. See "Least privilege" in the README for what each lane buys.
+- `validate` builds each provider once per run instead of once per manifest, so
+  manifests sharing a vault folder no longer re-read it (and the CI lane no
+  longer repeats the OIDC login per manifest).
+
 ## 0.3.1
 
 - Release-automation shakeout: `release.yml` now auto-moves the `v1` tag and
