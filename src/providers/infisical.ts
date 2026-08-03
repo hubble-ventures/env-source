@@ -179,8 +179,18 @@ export class InfisicalApiProvider implements Provider {
 export type SpawnResult = { status: number | null; stdout: string; stderr: string };
 export type SpawnFn = (command: string, args: string[]) => SpawnResult;
 
+// A folder export is unbounded where a single secret was not, and Node caps
+// captured stdout at 1 MiB by default — past which spawnSync kills the child,
+// truncates stdout and reports ENOBUFS, costing a full retry cycle before it
+// fails with a message about the CLI rather than about size. Lift the ceiling
+// well past any plausible folder instead.
+const SPAWN_MAX_BUFFER = 64 * 1024 * 1024;
+
 const defaultSpawn: SpawnFn = (command, args) => {
-  const r = spawnSync(command, args, { encoding: "utf8" });
+  const r = spawnSync(command, args, {
+    encoding: "utf8",
+    maxBuffer: SPAWN_MAX_BUFFER,
+  });
   return {
     status: r.status,
     stdout: r.stdout ?? "",
@@ -260,7 +270,13 @@ export class InfisicalCliProvider implements Provider {
     const cacheKey = `${environment}\0${path}`;
     const cached = this.folders.get(cacheKey);
     if (cached) return cached;
-    const pending = this.exportFolder(environment, path);
+    // Drop a failed read from the cache so a later call retries rather than
+    // replaying the failure — a CLI run aborts on it either way, but a
+    // long-lived library consumer holding one provider should recover.
+    const pending = this.exportFolder(environment, path).catch((error) => {
+      this.folders.delete(cacheKey);
+      throw error;
+    });
     this.folders.set(cacheKey, pending);
     return pending;
   }
@@ -293,7 +309,6 @@ export class InfisicalCliProvider implements Provider {
       );
     }, this.retry);
   }
-
 }
 
 /**

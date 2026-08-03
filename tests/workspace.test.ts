@@ -98,6 +98,17 @@ describe("discoverManifests", () => {
 
     expect(discoverManifests(root).map((f) => f.id)).toEqual(["apps/web"]);
   });
+
+  it("still discovers the workspace's own manifests when the root is a checkout", () => {
+    // The everyday case, and the one the nested-checkout skip must not break:
+    // the root of a normal repo holds a `.git` directory of its own.
+    const root = tmp();
+    mkdirSync(join(root, ".git"), { recursive: true });
+    manifest(root);
+    manifest(join(root, "apps", "web"));
+
+    expect(discoverManifests(root).map((f) => f.id)).toEqual(["apps/web", "root"]);
+  });
 });
 
 describe("selectManifests", () => {
@@ -129,6 +140,12 @@ describe("selectManifests", () => {
     ];
     expect(() => selectManifests(ambiguous, ["web"])).toThrow(
       /'web' is ambiguous.*apps\/web, other\/web.*full id/s
+    );
+  });
+
+  it("rejects an id that matches nothing rather than selecting none", () => {
+    expect(() => selectManifests(files, ["postgres", "postgress"])).toThrow(
+      /'postgress' matches no manifest.*apps\/web, infra\/postgres, scripts/s
     );
   });
 

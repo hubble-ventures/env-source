@@ -174,6 +174,16 @@ describe("InfisicalCliProvider (local lane)", () => {
     expect([...(await provider.peek("development", "/x", ["A", "C"]))]).toEqual(["A"]);
   });
 
+  it("reads an empty folder as absent keys", async () => {
+    // `infisical export` formats an empty folder as `[]` (the CLI initialises
+    // the slice), so this must parse rather than trip the not-an-array guard.
+    const provider = new InfisicalCliProvider({
+      projectId: "pid",
+      spawn: () => ({ status: 0, stdout: "[]", stderr: "" }),
+    });
+    expect(await provider.read("development", "/empty", ["A"])).toEqual({});
+  });
+
   it("treats an absent folder as absent keys, not an error", async () => {
     const spawn: SpawnFn = () => ({
       status: 1,
@@ -202,6 +212,25 @@ describe("InfisicalCliProvider (local lane)", () => {
     await expect(provider.read("development", "/x", ["A"])).rejects.toThrow(
       /infisical export failed/
     );
+  });
+
+  it("does not cache a failed folder read", async () => {
+    let calls = 0;
+    const spawn: SpawnFn = (cmd, args) => {
+      calls++;
+      if (calls === 1) return { status: 1, stdout: "", stderr: "network is down" };
+      return vaultSpawn({ A: "1" })(cmd, args);
+    };
+    const provider = new InfisicalCliProvider({
+      projectId: "pid",
+      spawn,
+      retry: { attempts: 1, baseMs: 0 },
+    });
+    await expect(provider.read("development", "/x", ["A"])).rejects.toThrow(
+      /infisical export failed/
+    );
+    // The failure is not replayed from cache: a later read tries again.
+    expect(await provider.read("development", "/x", ["A"])).toEqual({ A: "1" });
   });
 
   it("retries malformed output rather than reading it as an empty folder", async () => {

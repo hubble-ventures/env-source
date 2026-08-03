@@ -129,6 +129,11 @@ export function resolvedManifestPath(
  * one manifest: matching it against every same-named directory made `pull` write
  * secrets to paths the caller never named. When it is ambiguous we fail and ask
  * for the full id rather than guessing, or worse, pulling all of them.
+ *
+ * An id that matches nothing is an error for the same reason, from the other
+ * side: a typo would otherwise select no manifests and report "none found",
+ * which reads as "there is nothing to pull" rather than "you asked for something
+ * that isn't here".
  */
 export function selectManifests(
   files: ManifestFile[],
@@ -144,6 +149,11 @@ export function selectManifests(
       continue;
     }
     const byName = files.filter((f) => basename(f.dir) === id);
+    if (byName.length === 0) {
+      throw new Error(
+        `'${id}' matches no manifest. Discovered: ${describeIds(files)}`
+      );
+    }
     if (byName.length > 1) {
       throw new Error(
         `'${id}' is ambiguous — it matches ${byName.length} manifests: ${byName
@@ -155,6 +165,15 @@ export function selectManifests(
   }
   // Preserve discovery order rather than the order the ids were given.
   return files.filter((f) => selected.has(f.id));
+}
+
+/** Discovered ids for an error message, truncated so it stays readable. */
+function describeIds(files: ManifestFile[]): string {
+  if (files.length === 0) return "no manifests at all";
+  const shown = files.slice(0, 10).map((f) => f.id);
+  return files.length > shown.length
+    ? `${shown.join(", ")}, … (${files.length} total)`
+    : shown.join(", ");
 }
 
 /**
