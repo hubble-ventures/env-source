@@ -7,10 +7,19 @@ const DEFAULT_API_URL = "https://app.infisical.com";
 // default; the caller (or the job timeout) handles a genuine outage.
 const REQUEST_TIMEOUT_MS = 30_000;
 
-// Least privilege is the whole point: every read and peek fetches exactly the
-// keys the manifest declares, one request per key, and nothing else. We never
-// list or export a folder — an env-source consumer only ever pulls the keys and
-// values it explicitly named.
+// Least privilege is the point, and the two lanes buy it differently.
+//
+// The REST lane (CI) fetches one key per request from `/secrets/raw/{key}`, a
+// genuine single-secret endpoint: only the declared keys ever cross the wire.
+//
+// The CLI lane cannot do that. `infisical secrets get <KEY> --path=P` resolves
+// server-side to `GET /secrets/raw?secretPath=P` — the *folder* endpoint, with
+// no key filter — and filters the answer client-side. Asking per key therefore
+// downloads the whole folder once per key instead of once, which is how a pull
+// of 74 declared keys became 74 full-folder requests and a 429. So this lane
+// reads each folder once and selects the declared keys from it: strictly less
+// data over the wire than asking per key, and identical downstream — only
+// declared keys are ever returned, and an absent key stays absent.
 
 // ---------------------------------------------------------------------------
 // CI lane — REST over GitHub OIDC
@@ -194,16 +203,24 @@ export type InfisicalCliOptions = {
 
 /**
  * {@link Provider} backed by the Infisical CLI. This is the local lane: it shells
- * out to `infisical secrets get <KEY>`, which uses the developer's own
- * authenticated session (`infisical login`, stored in the OS keyring) —
- * env-source never handles a token. One invocation per declared key, so only the
- * named secrets are ever requested.
+ * out to `infisical export`, which uses the developer's own authenticated session
+ * (`infisical login`, stored in the OS keyring) — env-source never handles a
+ * token. One invocation per folder, from which the declared keys are selected;
+ * see the note at the top of this file for why per-key is not the cheaper or the
+ * more private option here.
  */
 export class InfisicalCliProvider implements Provider {
   readonly id = "infisical";
   private readonly projectId: string;
   private readonly spawn: SpawnFn;
   private readonly retry: RetryOptions;
+  /**
+   * In-flight and completed folder reads, keyed by environment + path. `validate`
+   * peeks and pulls the same folder, and manifests routinely share one; caching
+   * the promise (not just the result) also collapses concurrent callers into a
+   * single request.
+   */
+  private readonly folders = new Map<string, Promise<Record<string, string>>>();
 
   constructor(options: InfisicalCliOptions) {
     this.projectId = options.projectId;
@@ -216,13 +233,13 @@ export class InfisicalCliProvider implements Provider {
     path: string,
     keys: string[]
   ): Promise<Record<string, string>> {
+    const folder = await this.readFolder(environment, path);
     const out: Record<string, string> = {};
-    await Promise.all(
-      keys.map(async (key) => {
-        const value = await this.getSecret(environment, path, key);
-        if (value !== undefined) out[key] = value;
-      })
-    );
+    for (const key of keys) {
+      // Only declared keys are returned; anything else the folder holds is
+      // dropped here and never reaches a manifest or an output file.
+      if (Object.hasOwn(folder, key)) out[key] = folder[key] as string;
+    }
     return out;
   }
 
@@ -231,42 +248,77 @@ export class InfisicalCliProvider implements Provider {
     path: string,
     keys: string[]
   ): Promise<Set<string>> {
-    const present = new Set<string>();
-    await Promise.all(
-      keys.map(async (key) => {
-        if ((await this.getSecret(environment, path, key)) !== undefined) {
-          present.add(key);
-        }
-      })
-    );
-    return present;
+    const folder = await this.readFolder(environment, path);
+    return new Set(keys.filter((key) => Object.hasOwn(folder, key)));
   }
 
-  /** Read one secret via the CLI, or `undefined` when it does not exist. */
-  private getSecret(
+  /** Every secret in one folder, read once per (environment, path). */
+  private readFolder(
     environment: string,
-    path: string,
-    key: string
-  ): Promise<string | undefined> {
+    path: string
+  ): Promise<Record<string, string>> {
+    const cacheKey = `${environment}\0${path}`;
+    const cached = this.folders.get(cacheKey);
+    if (cached) return cached;
+    const pending = this.exportFolder(environment, path);
+    this.folders.set(cacheKey, pending);
+    return pending;
+  }
+
+  private exportFolder(
+    environment: string,
+    path: string
+  ): Promise<Record<string, string>> {
     return withRetry(() => {
       const result = this.spawn("infisical", [
-        "secrets",
-        "get",
-        key,
+        "export",
+        "--format=json",
         `--projectId=${this.projectId}`,
         `--env=${environment}`,
         `--path=${path}`,
-        "--plain",
+        // Match the per-key call this replaces: expand `${REF}` references and
+        // follow imports server-side.
+        "--expand=true",
+        "--include-imports=true",
+        // Keep tip/update notices off stdout so the JSON always parses.
         "--silent",
       ]);
-      if (result.status === 0) return result.stdout.replace(/\n$/, "");
+      if (result.status === 0) return parseExport(result.stdout);
       const detail = (result.stderr || result.stdout).trim();
-      if (NOT_FOUND.test(detail)) return undefined; // absent — not an error
+      // An absent folder is an absent key by every caller's reckoning, which is
+      // what asking per key already reported. A real failure still surfaces.
+      if (NOT_FOUND.test(detail)) return {};
       throw new Error(
-        `infisical secrets get failed for ${path}:${key} (${environment}): ${detail || "is the Infisical CLI installed and are you logged in? (`infisical login`)"}`
+        `infisical export failed for ${path} (${environment}): ${detail || "is the Infisical CLI installed and are you logged in? (`infisical login`)"}`
       );
     }, this.retry);
   }
+
+}
+
+/**
+ * Parse `infisical export --format=json`: an array of secret records carrying at
+ * least `key` and `value`. Malformed output throws so {@link withRetry} can try
+ * again — truncated stdout is exactly the transient failure retries are for, and
+ * silently reading it as an empty folder would report every declared key absent.
+ */
+function parseExport(stdout: string): Record<string, string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error("infisical export returned output that is not valid JSON");
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("infisical export returned JSON that is not an array");
+  }
+  const out: Record<string, string> = {};
+  for (const entry of parsed as { key?: unknown; value?: unknown }[]) {
+    if (typeof entry?.key === "string" && typeof entry.value === "string") {
+      out[entry.key] = entry.value;
+    }
+  }
+  return out;
 }
 
 /** Whether the Infisical CLI is available on PATH. */
