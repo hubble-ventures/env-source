@@ -25,14 +25,44 @@ const INTEGRATION_NAME = "env-source";
 // in 1Password's audit log and is not the env-source package version.
 const INTEGRATION_VERSION = "v1.0.0";
 
-// 1Password ids are 26-character lowercase alphanumeric. A path segment shaped
-// like one is used as-is, skipping the name → id lookup (and its request).
+// 1Password ids are 26-character lowercase alphanumeric. A path segment of that
+// shape is taken as an id only after the title lookup misses, so a vault or item
+// legitimately *named* like an id still resolves to itself.
 const OP_ID = /^[a-z0-9]{26}$/;
 
 // Distinguish "this vault/item isn't there" (fine — omit it, exactly as an
 // absent Infisical folder is) from a real failure such as an expired session or
 // a network error, which must surface rather than read as absent.
 const NOT_FOUND = /not found|no item|doesn't exist|does not exist|isn't a vault/i;
+
+// Failures a retry cannot fix, and that cost something to repeat.
+//
+// The SDK throws typed errors (`RateLimitExceededError`, `AuthExpiredError`,
+// `DesktopSessionExpiredError`) but never sets `name` on them — they extend
+// `Error` and assign only `message` — so `error.name` is `"Error"` for all three
+// and the constructor name is the only structural discriminator. Message
+// matching backs that up, since a consumer's bundler may mangle class names.
+const RATE_LIMITED = /rate.?limit|too many requests|\b429\b/i;
+const SESSION_EXPIRED = /session (has )?expired|auth(oriz\w+)?.?expired/i;
+
+type FailureKind = "rate-limit" | "session-expired" | "other";
+
+function classify(error: unknown): FailureKind {
+  const constructorName =
+    error instanceof Error ? (error.constructor?.name ?? "") : "";
+  const text = message(error);
+  if (constructorName === "RateLimitExceededError" || RATE_LIMITED.test(text)) {
+    return "rate-limit";
+  }
+  if (
+    constructorName === "AuthExpiredError" ||
+    constructorName === "DesktopSessionExpiredError" ||
+    SESSION_EXPIRED.test(text)
+  ) {
+    return "session-expired";
+  }
+  return "other";
+}
 
 // ---------------------------------------------------------------------------
 // The slice of the SDK this adapter uses
@@ -125,8 +155,8 @@ export class OnePasswordProvider implements Provider {
   private readonly options: OnePasswordOptions;
   private readonly retry: RetryOptions;
   private readonly makeClient: OnePasswordClientFactory;
-  /** The authenticated client, built once on first use. */
-  private clientPromise?: Promise<OnePasswordClient>;
+  /** The authenticated client, built on first use (cleared to re-authenticate). */
+  private clientPromise: Promise<OnePasswordClient> | undefined;
   /**
    * In-flight and completed item reads, keyed by environment + path. `validate`
    * peeks and pulls the same item, and manifests routinely share one; caching
@@ -141,9 +171,19 @@ export class OnePasswordProvider implements Provider {
 
   constructor(options: OnePasswordOptions = {}) {
     this.options = options;
-    this.retry = options.retry ?? {};
     this.makeClient =
       options.client ?? (() => createSdkClient(requireAuth(options.auth)));
+    this.retry = {
+      ...options.retry,
+      // 1Password meters *requests*, not concurrency, against a ceiling as low
+      // as 1,000 reads/24h. Retrying a request it already refused for exceeding
+      // that spends more of a budget that is by definition exhausted, and the
+      // backoff here (sub-second) is orders of magnitude shorter than the reset
+      // window, so no attempt after the first could succeed anyway. An expired
+      // session is equally unfixable by repetition — {@link call} drops the dead
+      // client so the *next* command re-authenticates instead.
+      shouldRetry: (error) => classify(error) === "other",
+    };
   }
 
   async read(
@@ -169,8 +209,33 @@ export class OnePasswordProvider implements Provider {
   }
 
   private client(): Promise<OnePasswordClient> {
-    this.clientPromise ??= this.makeClient();
+    // A failed sign-in must not be cached: the desktop app may simply have been
+    // locked, or the prompt dismissed, and the next call should be able to
+    // authenticate rather than replay the refusal for the life of the provider.
+    this.clientPromise ??= this.makeClient().catch((error: unknown) => {
+      this.clientPromise = undefined;
+      throw error;
+    });
     return this.clientPromise;
+  }
+
+  /**
+   * Run one client call under the retry policy, dropping the cached client when
+   * the session behind it has expired. Desktop sessions expire after ten minutes
+   * of inactivity, so a long-lived consumer holding one provider crosses that
+   * boundary routinely; without this the dead client would be cached forever and
+   * every later read would fail even once 1Password is unlocked again.
+   */
+  private async call<T>(
+    fn: (client: OnePasswordClient) => Promise<T>
+  ): Promise<T> {
+    const client = await this.client();
+    try {
+      return await withRetry(() => fn(client), this.retry);
+    } catch (error) {
+      if (classify(error) === "session-expired") this.clientPromise = undefined;
+      throw error;
+    }
   }
 
   /** Every readable field in one item, read once per (environment, path). */
@@ -203,17 +268,21 @@ export class OnePasswordProvider implements Provider {
     const itemId = await this.resolveItemId(vaultId, location.item);
     if (itemId === undefined) return {}; // absent item → absent keys
 
-    const client = await this.client();
-    const item = await withRetry(async () => {
-      try {
-        return await client.items.get(vaultId, itemId);
-      } catch (error) {
-        if (NOT_FOUND.test(message(error))) return undefined;
-        throw new Error(
-          `1Password read failed for ${path} (${environment}): ${message(error)}`
-        );
-      }
-    }, this.retry);
+    let item: OnePasswordItem | undefined;
+    try {
+      item = await this.call(async (client) => {
+        try {
+          return await client.items.get(vaultId, itemId);
+        } catch (error) {
+          if (NOT_FOUND.test(message(error))) return undefined;
+          throw error; // rethrown unwrapped so `call` can still classify it
+        }
+      });
+    } catch (error) {
+      throw new Error(
+        `1Password read failed for ${path} (${environment}): ${message(error)}`
+      );
+    }
     if (!item) return {};
 
     return selectFields(item, location.section);
@@ -259,49 +328,60 @@ export class OnePasswordProvider implements Provider {
     return this.options.vaults?.[environment] ?? this.options.vault;
   }
 
+  /**
+   * A vault's id. The title is consulted first and an id-shaped segment is only
+   * taken literally when no vault carries it as a title — otherwise a vault
+   * genuinely named like an id (26 lowercase alphanumerics is a plausible
+   * `productionpaymentsservices`) would be looked up as an id, miss, and report
+   * every key under it absent with nothing pointing at why.
+   */
   private async resolveVaultId(name: string): Promise<string | undefined> {
-    if (OP_ID.test(name)) return name;
-    this.vaultIds ??= this.loadVaultIds();
-    try {
-      return (await this.vaultIds).get(name);
-    } catch (error) {
+    const known = (await this.vaultIdsByTitle()).get(name);
+    if (known !== undefined) return known;
+    return OP_ID.test(name) ? name : undefined;
+  }
+
+  private vaultIdsByTitle(): Promise<Map<string, string>> {
+    this.vaultIds ??= this.loadVaultIds().catch((error: unknown) => {
       this.vaultIds = undefined; // let a later call retry
       throw error;
-    }
+    });
+    return this.vaultIds;
   }
 
-  private async loadVaultIds(): Promise<Map<string, string>> {
-    const client = await this.client();
-    return withRetry(async () => {
-      const vaults = await collect(client.vaults.list());
-      return byTitle(vaults);
-    }, this.retry);
+  private loadVaultIds(): Promise<Map<string, string>> {
+    return this.call(async (client) => byTitle(await collect(client.vaults.list())));
   }
 
+  /** An item's id, by title first — see {@link resolveVaultId}. */
   private async resolveItemId(
     vaultId: string,
     name: string
   ): Promise<string | undefined> {
-    if (OP_ID.test(name)) return name;
+    const known = (await this.itemIdsByTitle(vaultId)).get(name);
+    if (known !== undefined) return known;
+    return OP_ID.test(name) ? name : undefined;
+  }
+
+  private itemIdsByTitle(vaultId: string): Promise<Map<string, string>> {
     let pending = this.itemIds.get(vaultId);
     if (!pending) {
-      pending = this.loadItemIds(vaultId).catch((error) => {
+      pending = this.loadItemIds(vaultId).catch((error: unknown) => {
         this.itemIds.delete(vaultId);
         throw error;
       });
       this.itemIds.set(vaultId, pending);
     }
-    return (await pending).get(name);
+    return pending;
   }
 
-  private async loadItemIds(vaultId: string): Promise<Map<string, string>> {
-    const client = await this.client();
-    return withRetry(async () => {
+  private loadItemIds(vaultId: string): Promise<Map<string, string>> {
+    return this.call(async (client) => {
       // Overviews only — `items.list` returns id/title/category and never field
       // values, so nothing secret crosses the wire for a name lookup.
       const overviews = await collect(client.items.list(vaultId));
       return byTitle(overviews);
-    }, this.retry);
+    });
   }
 }
 

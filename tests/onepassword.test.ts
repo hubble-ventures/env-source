@@ -153,7 +153,7 @@ describe("OnePasswordProvider", () => {
     );
   });
 
-  it("takes 26-character ids verbatim, skipping the lookup requests", async () => {
+  it("resolves 26-character ids used in place of names", async () => {
     const vault: Vault = {
       id: "abcdefghijklmnopqrstuvwxyz",
       title: "Engineering",
@@ -161,15 +161,38 @@ describe("OnePasswordProvider", () => {
         { ...item("stripe", { API_KEY: "sk" }), id: "zyxwvutsrqponmlkjihgfedcba" },
       ],
     };
-    const { provider: op, calls } = provider([vault]);
+    const { provider: op } = provider([vault]);
     const values = await op.read(
       "development",
       "/abcdefghijklmnopqrstuvwxyz/zyxwvutsrqponmlkjihgfedcba",
       ["API_KEY"]
     );
     expect(values).toEqual({ API_KEY: "sk" });
-    expect(calls.vaultList).toBe(0);
-    expect(calls.itemList).toBe(0);
+  });
+
+  it("prefers a title over an identically shaped id", async () => {
+    // 26 lowercase alphanumerics is a plausible vault name, and treating it as
+    // an id would look up a vault that does not exist and report every key
+    // under it absent with nothing pointing at why.
+    const name = "productionpaymentsservices";
+    // Guard the premise: if this stops looking like an id the test would pass
+    // vacuously, asserting nothing about the ambiguity it exists to pin down.
+    expect(name).toMatch(/^[a-z0-9]{26}$/);
+
+    const named: Vault = {
+      id: "vault-named",
+      title: name,
+      items: [item("stripe", { API_KEY: "from_the_named_vault" })],
+    };
+    const byId: Vault = {
+      id: name,
+      title: "Unrelated",
+      items: [item("stripe", { API_KEY: "from_the_id_vault" })],
+    };
+    const { provider: op } = provider([named, byId]);
+    expect(
+      await op.read("development", `/${name}/stripe`, ["API_KEY"])
+    ).toEqual({ API_KEY: "from_the_named_vault" });
   });
 
   it("scopes fields to a section when the path names one", async () => {
@@ -243,6 +266,124 @@ describe("OnePasswordProvider", () => {
       "ATTACHMENT",
     ]);
     expect(values).toEqual({ API_KEY: "sk" });
+  });
+
+  it("does not retry a rate-limited read", async () => {
+    // 1Password meters requests, so retrying one it refused for exceeding the
+    // quota spends more of a budget that is already exhausted — and the
+    // sub-second backoff cannot outlast an hour-long reset window anyway.
+    class RateLimitExceededError extends Error {}
+    let attempts = 0;
+    const client: OnePasswordClient = {
+      vaults: { list: async () => [{ id: "v", title: "Engineering" }] },
+      items: {
+        list: async () => [{ id: "i", title: "stripe" }],
+        get: async () => {
+          attempts++;
+          throw new RateLimitExceededError("rate limit exceeded");
+        },
+      },
+    };
+    const op = new OnePasswordProvider({
+      client: () => Promise.resolve(client),
+      // The default policy (4 attempts) would otherwise apply.
+      retry: { baseMs: 0 },
+    });
+    await expect(
+      op.read("development", "/Engineering/stripe", ["API_KEY"])
+    ).rejects.toThrow(/rate limit/i);
+    expect(attempts).toBe(1);
+  });
+
+  it("still retries an ordinary transient failure", async () => {
+    let attempts = 0;
+    const client: OnePasswordClient = {
+      vaults: { list: async () => [{ id: "v", title: "Engineering" }] },
+      items: {
+        list: async () => [{ id: "i", title: "stripe" }],
+        get: async () => {
+          if (++attempts < 3) throw new Error("connection reset");
+          return {
+            id: "i",
+            title: "stripe",
+            fields: [{ id: "1", title: "API_KEY", value: "sk" }],
+          };
+        },
+      },
+    };
+    const op = new OnePasswordProvider({
+      client: () => Promise.resolve(client),
+      retry: { baseMs: 0 },
+    });
+    expect(
+      await op.read("development", "/Engineering/stripe", ["API_KEY"])
+    ).toEqual({ API_KEY: "sk" });
+    expect(attempts).toBe(3);
+  });
+
+  it("re-authenticates after the session behind the client expires", async () => {
+    // Desktop sessions expire after ten minutes of inactivity, so a long-lived
+    // consumer crosses this boundary routinely. Caching the dead client would
+    // fail every later read even once 1Password is unlocked again.
+    class DesktopSessionExpiredError extends Error {}
+    let signIns = 0;
+    const makeClient = () => {
+      const expired = ++signIns === 1;
+      return Promise.resolve<OnePasswordClient>({
+        vaults: { list: async () => [{ id: "v", title: "Engineering" }] },
+        items: {
+          list: async () => [{ id: "i", title: "stripe" }],
+          get: async () => {
+            if (expired) throw new DesktopSessionExpiredError("session expired");
+            return {
+              id: "i",
+              title: "stripe",
+              fields: [{ id: "1", title: "API_KEY", value: "sk" }],
+            };
+          },
+        },
+      });
+    };
+    const op = new OnePasswordProvider({ client: makeClient, retry: { baseMs: 0 } });
+
+    await expect(
+      op.read("development", "/Engineering/stripe", ["API_KEY"])
+    ).rejects.toThrow(/session expired/);
+    // The next call signs in again rather than replaying the dead session.
+    expect(
+      await op.read("development", "/Engineering/stripe", ["API_KEY"])
+    ).toEqual({ API_KEY: "sk" });
+    expect(signIns).toBe(2);
+  });
+
+  it("does not cache a failed sign-in", async () => {
+    let attempts = 0;
+    const op = new OnePasswordProvider({
+      client: () => {
+        if (++attempts === 1) return Promise.reject(new Error("prompt dismissed"));
+        return Promise.resolve<OnePasswordClient>({
+          vaults: { list: async () => [{ id: "v", title: "Engineering" }] },
+          items: {
+            list: async () => [{ id: "i", title: "stripe" }],
+            get: async () => ({
+              id: "i",
+              title: "stripe",
+              fields: [{ id: "1", title: "API_KEY", value: "sk" }],
+            }),
+          },
+        });
+      },
+      retry: { baseMs: 0 },
+    });
+
+    await expect(
+      op.read("development", "/Engineering/stripe", ["API_KEY"])
+    ).rejects.toThrow(/prompt dismissed/);
+    // Unlocking and retrying works — the refusal is not cached for the life of
+    // the provider.
+    expect(
+      await op.read("development", "/Engineering/stripe", ["API_KEY"])
+    ).toEqual({ API_KEY: "sk" });
   });
 
   it("builds no client until a value is actually needed", async () => {

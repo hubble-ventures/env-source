@@ -231,8 +231,11 @@ rest. How little crosses the wire depends on what the backend actually offers:
   from it. Reading per key would cost one request per key and buy no privacy.
   That matters more here than elsewhere: 1Password meters *per request*, and the
   per-account daily ceiling is 1,000 reads/24h on Individual, Families and Teams
-  plans (50,000 on Business). Name → id lookups use the overview endpoints, which
-  never return field values. As with the Infisical CLI lane, the item's other
+  plans (50,000 on Business). For the same reason a rate-limited read is not
+  retried: repeating a request the vault refused for exceeding a *per-request*
+  quota only spends more of a budget that is already gone, and the backoff is far
+  shorter than the reset window. Name → id lookups use the overview endpoints,
+  which never return field values. As with the Infisical CLI lane, the item's other
   fields pass through memory for the life of the command, and `peek` is
   membership in the fetched item rather than a value-free status check.
 
@@ -254,8 +257,9 @@ API_KEY=
 
 Without a section segment every field in the item is eligible and the first
 occurrence of a name wins; add the section when two sections share a field name.
-A path segment that is a 26-character 1Password id is used as-is, skipping the
-name lookup.
+A path segment may be a 26-character 1Password id instead of a name; titles are
+matched first, so a vault or item genuinely *named* like an id still resolves to
+itself.
 
 Auth has two lanes, both through the SDK:
 - **local** — the 1Password desktop app, using your own unlocked session
