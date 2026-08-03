@@ -49,7 +49,7 @@ Split the two concerns into two files.
 | File | Owns |
 |---|---|
 | `.env.source.yaml` | the secret graph: keys, providers, paths, source keys, environments, per-profile variation |
-| `.env.source` | the projection: which env var names are emitted, and which manifest key feeds each |
+| `.env.source` | the projection: which env var names are emitted, and which manifest key feeds each — optional, see below |
 | `env-source.toml` | unchanged — provider *connection* context, plus per-profile `output` |
 
 This is a breaking format change. It is proposed for 0.x on the grounds that
@@ -57,8 +57,8 @@ the current format cannot express the above correctly without one.
 
 ### What it buys
 
-- Discovery becomes trivially correct: exactly one `.env.source` and one
-  `.env.source.yaml` per directory, both always found.
+- Discovery becomes trivially correct: it keys on `.env.source.yaml`, one per
+  directory, always found. No basename-matching gap, no orphan case.
 - Profiles are data, so `discoverProfiles()` is a read rather than a scan, and
   `--profile X` scopes to the directories that declare X.
 - The full set of env vars a directory can emit is auditable in one file,
@@ -76,9 +76,10 @@ the current format cannot express the above correctly without one.
   `migrate --format v2`: decorators become manifest entries, assignments become
   projections, and each `.env.<profile>.source` becomes a profile column by
   diffing it against its base.
-- A directory with no profiles now needs two files where one sufficed.
 - Key-major layout gives up "write the provider and path once per group". YAML
   anchors restore it for authors who want it (see below).
+- A family of related profiles repeats itself on every key they share, since
+  key-major has no equivalent of `extends` and globbing is deferred.
 
 ## `.env.source.yaml`
 
@@ -186,15 +187,38 @@ the active profile does not define a referenced key, that projection is dropped
 from the output. This is how per-profile surfaces work without per-profile
 projection files.
 
+### The file is optional
+
+When a directory has a `.env.source.yaml` and no `.env.source`, the projection
+is **inferred**: every manifest key is emitted under its own name. A package
+that needs no aliases, no inline constants and no partial surface — the common
+case — therefore ships one file, not two.
+
+Writing the projection file is how you opt into the things inference cannot
+express: emitting a key under a different name, adding a constant with no
+manifest entry, or deliberately declaring fewer variables than the manifest
+defines. Adding the file is never a breaking change to resolution; it only ever
+narrows or renames what was already there.
+
+An inferred projection is reported as such by `list` and by `diff`'s coverage
+line, so "this directory emits exactly its manifest keys" is a stated fact
+rather than something a reader has to infer from a missing file.
+
 ## Resolution order
 
 1. Load `.env.source.yaml`.
 2. For each key, select the active profile's source, falling back to `default`
    per rule 2 above; drop keys resolving to `null` or absent per rule 3.
 3. → a key table: manifest key → sources, environments.
-4. Parse `.env.source` → projections.
+4. Parse `.env.source` → projections. When the file is absent, synthesise one
+   projection per manifest key, emitted under its own name.
 5. Drop projections whose key is not in the table; bind the rest.
 6. `compile()` for the target environment — unchanged from today.
+
+Note that step 4 is inference over the *whole* manifest, not the profile-filtered
+table from step 3 — otherwise the emitted surface would silently vary with the
+active profile in a way no file records. Step 5 does the filtering, identically
+for written and inferred projections.
 
 ## Validation
 
@@ -207,7 +231,10 @@ projection files.
 | Profile referenced that `env-source.toml` does not declare | `unknown_profile` | error |
 
 `unprojected_key` is the orphan case from #5, now catchable: a key can no longer
-be declared, reviewed, merged and silently inert.
+be declared, reviewed, merged and silently inert. It cannot fire against an
+inferred projection, which by construction covers every key — it is a check on
+hand-written projection files only, and that asymmetry is worth stating in the
+error text so a green run is not misread.
 
 ## `env-source.toml`
 
@@ -229,7 +256,7 @@ every command already loads, and gives `validate` a declared list to check
 coverage against — so a profile that exists but is never validated becomes a
 reportable gap.
 
-## Worked conversion
+## Worked conversion — a service with one profile
 
 Modelled on a real manifest pair — a service package with a `deploy` profile,
 48 lines of `.env.source` plus 49 of `.env.deploy.source`. The lanes differ by
@@ -357,25 +384,180 @@ deploy manifest's header comment still names the package it was originally
 copied from. Harmless in itself, and exactly the failure mode two files that
 must agree produce.
 
-## Open questions
+## Worked conversion — a mobile package with three release lanes
 
-1. **Multi-profile activation.** `--profile a,b` is expressible (both columns
-   merge) but needs a conflict rule when both define the same key. Proposal:
-   ship single-profile, leave the syntax free.
-2. **Sharing between sibling profiles.** A family of related profiles must each
-   list themselves on every key they share, since key-major layout has no
-   equivalent of `extends`. Profile globbing (`release-*:`) would fix it;
-   proposal is to ship without and see whether the repetition actually grates.
-3. **Single-file usage.** A directory with no profiles now needs two files. An
-   inline `projection:` block in the YAML would restore one-file usage; proposal
-   is not to build it until someone asks.
-4. **v1 support window.** Whether the v1 loader stays for a deprecation period
-   or `migrate --format v2` is required at the version boundary.
+The case #5 was actually written about. Four files — a base plus `release-ios`,
+`release-android` and `release-beta` — carrying **58 declarations for 32 unique
+keys**. The base is 5 keys; the lanes are 17, 16 and 20. So 27 of the 32 keys
+are profile-only, which is precisely the set that `validate` never covered.
+
+```yaml
+# ── shared with the base surface ────────────────────────────────────────────
+AUTH_PUBLISHABLE_KEY:
+  default: /auth
+AUTH_SECRET_KEY:
+  default: /auth
+NEXT_PUBLIC_AUTH_PUBLISHABLE_KEY:
+  default: /auth
+
+# Native OAuth client ids are not set in the preview vault.
+OAUTH_IOS_CLIENT_ID:
+  default:
+    path: /auth
+    environments:
+      - development
+      - production
+OAUTH_SERVER_CLIENT_ID:
+  default:
+    path: /auth
+    environments:
+      - development
+      - production
+
+# ── every release lane, absent from the base ────────────────────────────────
+HOST_API_TOKEN:
+  release-ios: /host
+  release-android: /host
+  release-beta: /host
+SYNC_ENGINE_URL:
+  release-ios: /host
+  release-android: /host
+  release-beta: /host
+WRITE_API_URL:
+  release-ios: /host
+  release-android: /host
+  release-beta: /host
+
+# Present in the two store lanes but not the beta lane — see observations.
+ANALYTICS_PROJECT_TOKEN:
+  release-ios: /analytics
+  release-android: /analytics
+
+# ── iOS store lane ──────────────────────────────────────────────────────────
+IOS_TEAM_ID:
+  release-ios: /ios-store
+IOS_BUNDLE_IDENTIFIER:
+  release-ios: /ios-store
+IOS_STORE_API_KEY:
+  release-ios: /ios-store
+IOS_STORE_API_KEY_ID:
+  release-ios: /ios-store
+IOS_STORE_ISSUER_ID:
+  release-ios: /ios-store
+SIGNING_REPO_URL:
+  release-ios: /ios-store
+SIGNING_REPO_DEPLOY_KEY:
+  release-ios: /ios-store
+SIGNING_REPO_PASSWORD:
+  release-ios: /ios-store
+
+# ── Android signing — same four keys, different vault path per lane ─────────
+ANDROID_KEYSTORE_BASE64:
+  release-android: /android-store
+  release-beta: /beta-distribution
+ANDROID_KEYSTORE_PASSWORD:
+  release-android: /android-store
+  release-beta: /beta-distribution
+ANDROID_KEY_ALIAS:
+  release-android: /android-store
+  release-beta: /beta-distribution
+ANDROID_KEY_PASSWORD:
+  release-android: /android-store
+  release-beta: /beta-distribution
+
+# ── Android store lane ──────────────────────────────────────────────────────
+ANDROID_APPLICATION_ID:
+  release-android: /android-store
+ANDROID_STORE_SERVICE_ACCOUNT_JSON:
+  release-android: /android-store
+ANDROID_STORE_TRACK:
+  release-android: /android-store
+
+# ── beta distribution lane ──────────────────────────────────────────────────
+BETA_ANDROID_APP_ID:
+  release-beta: /beta-distribution
+BETA_APP_ID_ANDROID:
+  release-beta: /beta-distribution
+BETA_IOS_APP_ID:
+  release-beta: /beta-distribution
+BETA_DISTRIBUTION_GROUPS:
+  release-beta: /beta-distribution
+BETA_ANDROID_TESTER_GROUP_INTERNAL:
+  release-beta: /beta-distribution
+BETA_ANDROID_TESTER_GROUP_EXTERNAL:
+  release-beta: /beta-distribution
+BETA_IOS_TESTER_GROUP_INTERNAL:
+  release-beta: /beta-distribution
+BETA_IOS_TESTER_GROUP_EXTERNAL:
+  release-beta: /beta-distribution
+```
+
+No `.env.source` — every key is emitted under its own name, so the projection is
+inferred.
+
+### Observations from the conversion
+
+**The four Android signing keys resolve from two different vault paths depending
+on the lane.** `ANDROID_KEYSTORE_BASE64` and its three siblings come from the
+store path under `release-android` and the beta-distribution path under
+`release-beta`. That is the most consequential fact in those four files, and in
+v1 it is discoverable only by opening two of them side by side and noticing the
+decorator differs. Key-major puts both origins on adjacent lines. If the two
+vault entries ever diverge, the binary shipped to testers is signed differently
+from the one shipped to the store, and nothing in the v1 layout would say so.
+
+**`ANALYTICS_PROJECT_TOKEN` is in both store lanes but not the beta lane.**
+Possibly deliberate, possibly an omission from when the beta lane was copied.
+The point is that in v1 the absence is a decorator block that simply isn't there
+in a file you would have to compare against two others.
+
+**`BETA_ANDROID_APP_ID` and `BETA_APP_ID_ANDROID` are both declared, from the
+same path, in the same lane.** Near-certainly one redundant name surviving a
+rename. In v1 they sit in a twelve-line alphabetical block where the near
+collision reads as normal; key-major puts them adjacent.
+
+**Line count barely moves** — roughly 147 lines across four files to about 140
+across one. This conversion is not a size win and should not be sold as one.
+What changes is that 58 declarations become 32: exactly one place per key to be
+right or wrong.
+
+**The repetition cost is real and visible.** The three `/host` keys each list
+all three lanes — nine lines stating one fact. This is the concrete case behind
+the decision to defer globbing, and the thing to re-examine first if the format
+proves tiring to author.
+
+## Decisions
+
+**v1 support ends at the next minor.** No dual-format period: the decorator
+loader is removed in the same release that adds v2, and `migrate --format v2` is
+required to upgrade. This keeps one loader, one diff path and one validate path,
+at the cost of a hard break for anyone on 0.3.x. Given the migration is
+mechanical and the format is the defect, the break is the point. `migrate` must
+therefore be complete and well-tested *before* the release, not alongside it —
+it is the only upgrade path.
+
+**No profile globbing in the first version.** A family of related profiles
+repeats itself on every shared key: in the mobile conversion below, three keys
+each list three lanes. That is verbose but not wrong, and both `release-*:`
+globbing and named profile groups in `env-source.toml` remain addable later
+without a format break. Revisit if the repetition proves annoying in practice.
+
+**Single profile per run.** `--profile a,b` is not supported. Neither worked
+conversion needed it, and merging columns requires a conflict rule where every
+plausible answer — error, or order-dependent last-wins — is either brittle or a
+way to land the wrong secret quietly. The syntax stays free for later.
+
+**The projection file is optional**, with inference when absent — specified
+above. This removes the two-files-for-a-simple-package cost the split would
+otherwise have imposed, and keeps the explicit file for the cases that need it.
 
 ## Not in this document
 
 Implementation. No parser, schema or command changes are proposed here — the
-purpose is to agree the format before any of that is written. The natural first
-increment is the zod schema plus the v2 loader behind a flag, with
-`migrate --format v2` and the conversion of a real multi-package workspace as
-the acceptance test.
+purpose is to agree the format before any of that is written.
+
+Given the hard cut above, the increments are: the zod schema and v2 loader;
+`migrate --format v2` with round-trip tests over the existing fixtures; then
+removal of the v1 parser and its call sites in the same release. Converting a
+real multi-package workspace is the acceptance test — including at least one
+directory carrying several profiles, since that is where v1 failed.
